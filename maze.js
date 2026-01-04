@@ -15,6 +15,8 @@ let minimapVisible = true; // Minimap visibility state
 let statsDiv = null; // Stats display element
 let statsVisible = false; // Stats visibility state
 let wikipediaWalls = new Set(); // Track which walls have Wikipedia textures (format: "type-x-y")
+let globalWallMeshMap = null; // Global reference to wall mesh map for loading paintings on demand
+let globalCreateFramedPicture = null; // Global reference to createFramedPicture function
 
 // Player position and rotation
 let playerPosition = { x: 0, z: 0 };
@@ -31,21 +33,19 @@ let controls = {
     right: false
 };
 
-// Auto mode: random movement and looking
+// Auto mode: pathfinding-based navigation
 let autoMode = true; // Start with auto mode enabled by default
-let isTurning = false; // Whether we're currently turning after collision
+let isTurning = false; // Whether we're currently turning
 let targetRotation = 0; // Target rotation angle when turning
-let lastPositionCheck = { x: 0, z: 0 }; // Last position for distance check
-let positionCheckTimer = 0; // Timer for checking if player has moved
-let lastCellX = -1; // Last cell X coordinate
-let lastCellZ = -1; // Last cell Z coordinate
-let cellsMoved = 0; // Counter for cells moved
-let lastPlayerX = 0; // Last player X position for midline crossing detection
-let lastPlayerZ = 0; // Last player Z position for midline crossing detection
+let navigationPath = []; // Path to follow (array of {x, z} cell coordinates)
+let currentPathIndex = 0; // Current index in the path
+let targetCell = null; // Current target cell {x, z}
+let isViewingPainting = false; // Whether currently viewing a painting
+let viewingPaintingTimer = 0; // Timer for viewing painting
+let paintingLookDirection = null; // Direction to look at painting
+let originalDirection = null; // Original direction before looking at painting
 const TURN_SPEED = 0.03; // Speed of gradual turning
-const POSITION_CHECK_INTERVAL = 60; // Frames between position checks
-const MIN_MOVEMENT_DISTANCE = 0.5; // Minimum distance player must move to avoid turning
-const CELLS_BEFORE_TURN = 5; // Number of cells to move before random turn
+const VIEWING_TIME = 180; // 3 seconds at 60fps
 
 // Generate maze with walls on boundaries
 // Returns: { horizontalWalls, verticalWalls }
@@ -283,6 +283,7 @@ async function createMaze(wallData) {
     
     // Create a map to track which walls should get Wikipedia images
     const wallMeshMap = new Map(); // Maps wall key to mesh object
+    globalWallMeshMap = wallMeshMap; // Store globally for on-demand loading
     
     // Create all horizontal walls with brick texture first
     for (let y = 0; y <= MAZE_SIZE; y++) {
@@ -617,6 +618,9 @@ async function createMaze(wallData) {
             );
         });
     }
+    
+    // Store global reference for on-demand loading
+    globalCreateFramedPicture = createFramedPicture;
 
     // Asynchronously load Wikipedia images and create framed pictures
     // Sort walls by distance from player starting position
@@ -655,8 +659,14 @@ async function createMaze(wallData) {
         
         // Load Wikipedia images in order of distance from player
         for (const { wallKey, type } of wallsWithDistance) {
+            // Skip if already loaded (by on-demand loader)
+            if (wikipediaWalls.has(wallKey)) continue;
+            
             const wall = wallMeshMap.get(wallKey);
             if (!wall) continue;
+            
+            // Reserve this wall to prevent race conditions
+            wikipediaWalls.add(wallKey);
             
             // Parse wall key to get position
             const [wallType, xStr, yStr] = wallKey.split('-');
@@ -682,8 +692,9 @@ async function createMaze(wallData) {
                 const result = await fetchRandomWikipediaImage();
                 if (result && result.imageUrl) {
                     await createFramedPicture(result.imageUrl, wall, type, side, result.title);
-                    // Mark this wall as having Wikipedia texture
-                    wikipediaWalls.add(wallKey);
+                } else {
+                    // Failed - unreserve
+                    wikipediaWalls.delete(wallKey);
                 }
             } else {
                 // Internal wall: place images on both sides
@@ -697,9 +708,9 @@ async function createMaze(wallData) {
                     await createFramedPicture(result2.imageUrl, wall, type, 'negative', result2.title);
                 }
                 
-                if ((result1 && result1.imageUrl) || (result2 && result2.imageUrl)) {
-                    // Mark this wall as having Wikipedia texture
-                    wikipediaWalls.add(wallKey);
+                if (!(result1 && result1.imageUrl) && !(result2 && result2.imageUrl)) {
+                    // Both failed - unreserve
+                    wikipediaWalls.delete(wallKey);
                 }
             }
         }
@@ -775,17 +786,15 @@ function init() {
     window.addEventListener('keyup', onKeyUp);
     window.addEventListener('resize', onWindowResize);
     
-    // Initialize auto mode tracking variables (since auto mode starts enabled)
+    // Initialize auto mode (pathfinding will start automatically)
     if (autoMode) {
-        lastPositionCheck.x = playerPosition.x;
-        lastPositionCheck.z = playerPosition.z;
-        positionCheckTimer = 0;
-        cellsMoved = 0;
-        const startCell = worldToGrid(playerPosition.x, playerPosition.z);
-        lastCellX = startCell.x;
-        lastCellZ = startCell.z;
-        lastPlayerX = playerPosition.x;
-        lastPlayerZ = playerPosition.z;
+        targetCell = null;
+        navigationPath = [];
+        currentPathIndex = 0;
+        isViewingPainting = false;
+        viewingPaintingTimer = 0;
+        paintingLookDirection = null;
+        originalDirection = null;
     }
     
     // Start animation loop
@@ -822,19 +831,16 @@ function onKeyDown(event) {
             break;
         case 'z':
         case 'Z':
-            // Toggle auto mode: automatic movement with collision-based turning
+            // Toggle auto mode: pathfinding-based navigation
             autoMode = true;
-            isTurning = false; // Reset turning state
-            // Initialize position check and cell tracking
-            lastPositionCheck.x = playerPosition.x;
-            lastPositionCheck.z = playerPosition.z;
-            positionCheckTimer = 0;
-            cellsMoved = 0;
-            const startCell = worldToGrid(playerPosition.x, playerPosition.z);
-            lastCellX = startCell.x;
-            lastCellZ = startCell.z;
-            lastPlayerX = playerPosition.x;
-            lastPlayerZ = playerPosition.z;
+            isTurning = false;
+            targetCell = null;
+            navigationPath = [];
+            currentPathIndex = 0;
+            isViewingPainting = false;
+            viewingPaintingTimer = 0;
+            paintingLookDirection = null;
+            originalDirection = null;
             break;
         case 't':
         case 'T':
@@ -888,6 +894,220 @@ function worldToGrid(worldX, worldZ) {
     const gridX = Math.floor((worldX + (MAZE_SIZE * CELL_SIZE) / 2) / CELL_SIZE);
     const gridZ = Math.floor((worldZ + (MAZE_SIZE * CELL_SIZE) / 2) / CELL_SIZE);
     return { x: gridX, z: gridZ };
+}
+
+// Convert grid coordinates to world position (center of cell)
+function gridToWorld(gridX, gridZ) {
+    const worldX = (gridX - MAZE_SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
+    const worldZ = (gridZ - MAZE_SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
+    return { x: worldX, z: worldZ };
+}
+
+// BFS pathfinding algorithm
+// Based on user's clarification:
+// - horizontalWalls[y][x] = wall at TOP of cell (x,y), separating (x,y-1) and (x,y)
+// - verticalWalls[y][x] = wall at LEFT of cell (x,y), separating (x-1,y) and (x,y)
+function findPath(start, goal) {
+    if (!mazeData) return [];
+    
+    const { horizontalWalls, verticalWalls } = mazeData;
+    
+    // Validate inputs
+    if (start.x < 0 || start.x >= MAZE_SIZE || start.z < 0 || start.z >= MAZE_SIZE) return [];
+    if (goal.x < 0 || goal.x >= MAZE_SIZE || goal.z < 0 || goal.z >= MAZE_SIZE) return [];
+    
+    // Check if two adjacent cells are connected (no wall between them)
+    function areConnected(cell1, cell2) {
+        const dx = cell2.x - cell1.x;
+        const dz = cell2.z - cell1.z;
+        
+        // Must be adjacent
+        if (Math.abs(dx) + Math.abs(dz) !== 1) return false;
+        
+        // Based on user's clarification:
+        // - horizontalWalls[y][x] = wall at TOP of cell (x,y), separating (x,y-1) and (x,y)
+        // - verticalWalls[y][x] = wall at LEFT of cell (x,y), separating (x-1,y) and (x,y)
+        
+        if (dx === 1) {
+            // Moving right (east): from (x,z) to (x+1,z)
+            // Check verticalWalls at the LEFT of the destination cell (x+1,z)
+            // verticalWalls[z][x+1] = wall separating (x,z) and (x+1,z)
+            if (cell2.z < 0 || cell2.z >= verticalWalls.length) return false;
+            if (cell2.x < 0 || cell2.x >= verticalWalls[cell2.z].length) return false;
+            return !verticalWalls[cell2.z][cell2.x];
+        } else if (dx === -1) {
+            // Moving left (west): from (x,z) to (x-1,z)
+            // Check verticalWalls at the LEFT of the current cell (x,z)
+            // verticalWalls[z][x] = wall separating (x-1,z) and (x,z)
+            if (cell1.z < 0 || cell1.z >= verticalWalls.length) return false;
+            if (cell1.x < 0 || cell1.x >= verticalWalls[cell1.z].length) return false;
+            return !verticalWalls[cell1.z][cell1.x];
+        } else if (dz === 1) {
+            // Moving down (south): from (x,z) to (x,z+1)
+            // Check horizontalWalls at the TOP of the destination cell (x,z+1)
+            // horizontalWalls[z+1][x] = wall separating (x,z) and (x,z+1)
+            if (cell2.z < 0 || cell2.z >= horizontalWalls.length) return false;
+            if (cell2.x < 0 || cell2.x >= horizontalWalls[cell2.z].length) return false;
+            return !horizontalWalls[cell2.z][cell2.x];
+        } else if (dz === -1) {
+            // Moving up (north): from (x,z) to (x,z-1)
+            // Check horizontalWalls at the TOP of the current cell (x,z)
+            // horizontalWalls[z][x] = wall separating (x,z-1) and (x,z)
+            if (cell1.z < 0 || cell1.z >= horizontalWalls.length) return false;
+            if (cell1.x < 0 || cell1.x >= horizontalWalls[cell1.z].length) return false;
+            return !horizontalWalls[cell1.z][cell1.x];
+        }
+        
+        return false;
+    }
+    
+    // BFS
+    const queue = [{ x: start.x, z: start.z }];
+    const visited = new Set();
+    const parent = new Map();
+    
+    visited.add(`${start.x},${start.z}`);
+    
+    while (queue.length > 0) {
+        const current = queue.shift();
+        
+        // Found goal
+        if (current.x === goal.x && current.z === goal.z) {
+            // Reconstruct path
+            const path = [];
+            let node = goal;
+            while (node) {
+                path.unshift(node);
+                const nodeKey = `${node.x},${node.z}`;
+                node = parent.get(nodeKey);
+            }
+            return path;
+        }
+        
+        // Check all 4 neighbors
+        const neighbors = [
+            { x: current.x + 1, z: current.z },
+            { x: current.x - 1, z: current.z },
+            { x: current.x, z: current.z + 1 },
+            { x: current.x, z: current.z - 1 }
+        ];
+        
+        for (const neighbor of neighbors) {
+            if (neighbor.x < 0 || neighbor.x >= MAZE_SIZE || 
+                neighbor.z < 0 || neighbor.z >= MAZE_SIZE) {
+                continue;
+            }
+            
+            const neighborKey = `${neighbor.x},${neighbor.z}`;
+            if (visited.has(neighborKey)) continue;
+            
+            if (!areConnected(current, neighbor)) continue;
+            
+            visited.add(neighborKey);
+            parent.set(neighborKey, current);
+            queue.push(neighbor);
+        }
+    }
+    
+    return []; // No path found
+}
+
+// Get walls around a cell (returns array of wall info)
+function getWallsAroundCell(cellX, cellZ) {
+    const walls = [];
+    
+    // Top wall (horizontal wall at y = cellZ)
+    // This wall is at the TOP of the cell, separating (cellX, cellZ-1) and (cellX, cellZ)
+    if (cellZ >= 0 && cellZ <= MAZE_SIZE) {
+        walls.push({
+            key: `horizontal-${cellX}-${cellZ}`,
+            type: 'horizontal',
+            x: cellX,
+            y: cellZ,
+            worldX: (cellX - MAZE_SIZE / 2) * CELL_SIZE + CELL_SIZE / 2,
+            worldZ: (cellZ - MAZE_SIZE / 2) * CELL_SIZE,
+            facingSide: 'positive' // Face towards positive Z (into the cell)
+        });
+    }
+    
+    // Bottom wall (horizontal wall at y = cellZ + 1)
+    if (cellZ + 1 >= 0 && cellZ + 1 <= MAZE_SIZE) {
+        walls.push({
+            key: `horizontal-${cellX}-${cellZ + 1}`,
+            type: 'horizontal',
+            x: cellX,
+            y: cellZ + 1,
+            worldX: (cellX - MAZE_SIZE / 2) * CELL_SIZE + CELL_SIZE / 2,
+            worldZ: (cellZ + 1 - MAZE_SIZE / 2) * CELL_SIZE,
+            facingSide: 'negative' // Face towards negative Z (into the cell)
+        });
+    }
+    
+    // Left wall (vertical wall at x = cellX)
+    if (cellX >= 0 && cellX <= MAZE_SIZE) {
+        walls.push({
+            key: `vertical-${cellX}-${cellZ}`,
+            type: 'vertical',
+            x: cellX,
+            y: cellZ,
+            worldX: (cellX - MAZE_SIZE / 2) * CELL_SIZE,
+            worldZ: (cellZ - MAZE_SIZE / 2) * CELL_SIZE + CELL_SIZE / 2,
+            facingSide: 'positive' // Face towards positive X (into the cell)
+        });
+    }
+    
+    // Right wall (vertical wall at x = cellX + 1)
+    if (cellX + 1 >= 0 && cellX + 1 <= MAZE_SIZE) {
+        walls.push({
+            key: `vertical-${cellX + 1}-${cellZ}`,
+            type: 'vertical',
+            x: cellX + 1,
+            y: cellZ,
+            worldX: (cellX + 1 - MAZE_SIZE / 2) * CELL_SIZE,
+            worldZ: (cellZ - MAZE_SIZE / 2) * CELL_SIZE + CELL_SIZE / 2,
+            facingSide: 'negative' // Face towards negative X (into the cell)
+        });
+    }
+    
+    return walls;
+}
+
+// Get paintings (walls with Wikipedia images) around a cell
+function getPaintingsAroundCell(cellX, cellZ) {
+    const walls = getWallsAroundCell(cellX, cellZ);
+    return walls.filter(wall => wikipediaWalls.has(wall.key));
+}
+
+// Load a painting on a wall in a cell (returns promise)
+async function loadPaintingInCell(cellX, cellZ) {
+    if (!globalWallMeshMap || !globalCreateFramedPicture) return null;
+    
+    const walls = getWallsAroundCell(cellX, cellZ);
+    
+    // Find a wall that exists but doesn't have a painting yet
+    for (const wall of walls) {
+        // Check if this wall exists in the mesh map
+        const wallMesh = globalWallMeshMap.get(wall.key);
+        if (!wallMesh) continue;
+        
+        // Check if this wall already has a painting (or is being loaded)
+        if (wikipediaWalls.has(wall.key)) continue;
+        
+        // Reserve this wall immediately to prevent race conditions
+        wikipediaWalls.add(wall.key);
+        
+        // Load a painting on this wall
+        const result = await fetchRandomWikipediaImage();
+        if (result && result.imageUrl) {
+            await globalCreateFramedPicture(result.imageUrl, wallMesh, wall.type, wall.facingSide, result.title);
+            return wall;
+        } else {
+            // Failed to load - unreserve the wall
+            wikipediaWalls.delete(wall.key);
+        }
+    }
+    
+    return null; // No wall available or failed to load
 }
 
 // Check if position is valid (not colliding with boundary walls)
@@ -1053,129 +1273,175 @@ function isTouchingWall() {
 
 // Update player movement (manual)
 function updateMovement() {
-    // Auto mode: random movement and looking
+    // Auto mode: pathfinding-based navigation
     if (autoMode) {
+        // If viewing a painting, handle the viewing state
+        if (isViewingPainting) {
+            viewingPaintingTimer++;
+            
+            // Look at the painting
+            if (paintingLookDirection !== null) {
+                let angleDiff = paintingLookDirection - playerRotation;
+                while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
+                while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
+                
+                if (Math.abs(angleDiff) > TURN_SPEED) {
+                    playerRotation += Math.sign(angleDiff) * TURN_SPEED;
+                } else {
+                    playerRotation = paintingLookDirection;
+                }
+            }
+            
+            // After viewing time, pick a new target
+            if (viewingPaintingTimer >= VIEWING_TIME) {
+                isViewingPainting = false;
+                viewingPaintingTimer = 0;
+                paintingLookDirection = null;
+                originalDirection = null;
+                targetCell = null;
+                navigationPath = [];
+                currentPathIndex = 0;
+            }
+            
+            camera.position.set(playerPosition.x, 1.2, playerPosition.z);
+            camera.rotation.y = playerRotation;
+            return;
+        }
+        
         // If we're currently turning, handle the gradual rotation
         if (isTurning) {
-            // Calculate the angle difference
             let angleDiff = targetRotation - playerRotation;
-            
-            // Normalize angle difference to [-PI, PI]
             while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
             while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
             
-            // Gradually rotate towards target
             if (Math.abs(angleDiff) > TURN_SPEED) {
-                // Still turning - rotate towards target
                 playerRotation += Math.sign(angleDiff) * TURN_SPEED;
             } else {
-                // Turn complete - snap to target and resume movement
                 playerRotation = targetRotation;
                 isTurning = false;
-                // Reset position check after turning (but keep cell tracking for collision-based turns)
-                lastPositionCheck.x = playerPosition.x;
-                lastPositionCheck.z = playerPosition.z;
-                positionCheckTimer = 0;
-                // Note: cellsMoved is NOT reset here - only reset after planned turns (every 5 cells)
             }
         } else {
-            // Not turning - normal movement behavior (no random turning, only collision-based)
-            // Check if player has moved enough distance
-            positionCheckTimer++;
-            if (positionCheckTimer >= POSITION_CHECK_INTERVAL) {
-                const distanceMoved = Math.sqrt(
-                    Math.pow(playerPosition.x - lastPositionCheck.x, 2) +
-                    Math.pow(playerPosition.z - lastPositionCheck.z, 2)
+            // Not turning - follow path or pick new target
+            const currentCell = worldToGrid(playerPosition.x, playerPosition.z);
+            
+            // If we don't have a target, pick a random one with path <= 6
+            if (!targetCell) {
+                const MAX_PATH_LENGTH = 6;
+                let attempts = 0;
+                let bestTarget = null;
+                let bestPath = [];
+                
+                while (attempts < 50 && !bestTarget) {
+                    const candidateTarget = {
+                        x: Math.floor(Math.random() * MAZE_SIZE),
+                        z: Math.floor(Math.random() * MAZE_SIZE)
+                    };
+                    
+                    // Skip if same as current cell
+                    if (candidateTarget.x === currentCell.x && candidateTarget.z === currentCell.z) {
+                        attempts++;
+                        continue;
+                    }
+                    
+                    const start = { x: currentCell.x, z: currentCell.z };
+                    const path = findPath(start, candidateTarget);
+                    
+                    // Accept if path exists and length <= MAX_PATH_LENGTH
+                    if (path.length > 0 && path.length <= MAX_PATH_LENGTH + 1) {
+                        bestTarget = candidateTarget;
+                        bestPath = path;
+                    }
+                    
+                    attempts++;
+                }
+                
+                if (bestTarget) {
+                    targetCell = bestTarget;
+                    navigationPath = bestPath;
+                    currentPathIndex = navigationPath.length > 1 ? 1 : 0;
+                    console.log(`Target: (${targetCell.x}, ${targetCell.z}), path: ${navigationPath.length - 1} cells`);
+                }
+            }
+            
+            // If we have a path, follow it
+            if (navigationPath.length > 0 && currentPathIndex < navigationPath.length) {
+                const targetPathCell = navigationPath[currentPathIndex];
+                const targetWorld = gridToWorld(targetPathCell.x, targetPathCell.z);
+                
+                const distToTarget = Math.sqrt(
+                    Math.pow(playerPosition.x - targetWorld.x, 2) +
+                    Math.pow(playerPosition.z - targetWorld.z, 2)
                 );
                 
-                if (distanceMoved < MIN_MOVEMENT_DISTANCE) {
-                    // Player hasn't moved enough - stuck or moving very slowly, start turning
-                    // Randomly turn left or right (50/50)
-                    const turnDirection = Math.random() < 0.5 ? 1 : -1;
-                    targetRotation = playerRotation + turnDirection * Math.PI / 2; // 90 degrees
-                    isTurning = true;
-                    // Reset position check (but keep cell tracking)
-                    lastPositionCheck.x = playerPosition.x;
-                    lastPositionCheck.z = playerPosition.z;
-                    positionCheckTimer = 0;
+                if (distToTarget < 0.3) {
+                    // Reached this cell, move to next
+                    currentPathIndex++;
+                    
+                    if (currentPathIndex >= navigationPath.length) {
+                        // Reached final target - look for paintings
+                        console.log(`Reached target (${targetCell.x}, ${targetCell.z})`);
+                        
+                        const paintings = getPaintingsAroundCell(targetCell.x, targetCell.z);
+                        
+                        if (paintings.length > 0) {
+                            // Found a painting - look at it
+                            const painting = paintings[0];
+                            const dx = painting.worldX - playerPosition.x;
+                            const dz = painting.worldZ - playerPosition.z;
+                            paintingLookDirection = Math.atan2(-dx, -dz);
+                            originalDirection = playerRotation;
+                            isViewingPainting = true;
+                            viewingPaintingTimer = 0;
+                            console.log(`Looking at painting on wall ${painting.key}`);
+                        } else {
+                            // No paintings - try to load one
+                            console.log(`No painting found, loading one...`);
+                            loadPaintingInCell(targetCell.x, targetCell.z).then(wall => {
+                                if (wall) {
+                                    const dx = wall.worldX - playerPosition.x;
+                                    const dz = wall.worldZ - playerPosition.z;
+                                    paintingLookDirection = Math.atan2(-dx, -dz);
+                                    originalDirection = playerRotation;
+                                    isViewingPainting = true;
+                                    viewingPaintingTimer = 0;
+                                    console.log(`Loaded painting on wall ${wall.key}`);
+                                } else {
+                                    // No wall available - pick new target
+                                    console.log(`No wall available for painting`);
+                                    targetCell = null;
+                                    navigationPath = [];
+                                    currentPathIndex = 0;
+                                }
+                            });
+                        }
+                    }
                 } else {
-                    // Player has moved enough - reset check
-                    lastPositionCheck.x = playerPosition.x;
-                    lastPositionCheck.z = playerPosition.z;
-                    positionCheckTimer = 0;
-                }
-            }
-            
-            // Check if player has entered a new cell
-            const currentCell = worldToGrid(playerPosition.x, playerPosition.z);
-            if (currentCell.x !== lastCellX || currentCell.z !== lastCellZ) {
-                // Entered a new cell
-                lastCellX = currentCell.x;
-                lastCellZ = currentCell.z;
-                // Only increment if we haven't reached the threshold yet (cap at CELLS_BEFORE_TURN)
-                if (cellsMoved < CELLS_BEFORE_TURN) {
-                    cellsMoved++;
-                }
-                // Reset midline crossing tracking when entering a new cell
-                lastPlayerX = playerPosition.x;
-                lastPlayerZ = playerPosition.z;
-            }
-            
-            // Check if player has crossed the middle of the current cell (on either axis) and it's time to turn
-            if (cellsMoved >= CELLS_BEFORE_TURN && !isTurning) {
-                const cellCenterX = (currentCell.x - MAZE_SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
-                const cellCenterZ = (currentCell.z - MAZE_SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
-                
-                // Check if player has crossed the vertical midline (X axis)
-                const crossedVerticalMidline = 
-                    (lastPlayerX < cellCenterX && playerPosition.x >= cellCenterX) ||
-                    (lastPlayerX > cellCenterX && playerPosition.x <= cellCenterX);
-                
-                // Check if player has crossed the horizontal midline (Z axis)
-                const crossedHorizontalMidline = 
-                    (lastPlayerZ < cellCenterZ && playerPosition.z >= cellCenterZ) ||
-                    (lastPlayerZ > cellCenterZ && playerPosition.z <= cellCenterZ);
-                
-                // If crossed either midline, trigger turn
-                if (crossedVerticalMidline || crossedHorizontalMidline) {
-                    // Make a random turn
-                    const turnDirection = Math.random() < 0.5 ? 1 : -1;
-                    targetRotation = playerRotation + turnDirection * Math.PI / 2; // 90 degrees
-                    isTurning = true;
-                    cellsMoved = 0; // Reset counter after turning
-                    // Reset tracking
-                    lastPlayerX = playerPosition.x;
-                    lastPlayerZ = playerPosition.z;
-                } else {
-                    // Update last position for next frame
-                    lastPlayerX = playerPosition.x;
-                    lastPlayerZ = playerPosition.z;
-                }
-            }
-            
-            // Move forward slowly
-            const moveX = -Math.sin(playerRotation) * AUTO_MOVE_SPEED;
-            const moveZ = -Math.cos(playerRotation) * AUTO_MOVE_SPEED;
-            
-            const newX = playerPosition.x + moveX;
-            const newZ = playerPosition.z + moveZ;
-            
-            // Check if the new position is valid
-            if (isValidPosition(newX, newZ)) {
-                // Safe to move
-                playerPosition.x = newX;
-                playerPosition.z = newZ;
-            } else {
-                // Can't move to new position - start turning
-                if (!isTurning) {
-                    // Randomly turn left or right (50/50)
-                    const turnDirection = Math.random() < 0.5 ? 1 : -1;
-                    targetRotation = playerRotation + turnDirection * Math.PI / 2; // 90 degrees
-                    isTurning = true;
-                    // Reset position check (but keep cell tracking)
-                    lastPositionCheck.x = playerPosition.x;
-                    lastPositionCheck.z = playerPosition.z;
-                    positionCheckTimer = 0;
+                    // Move towards current path cell
+                    const dx = targetWorld.x - playerPosition.x;
+                    const dz = targetWorld.z - playerPosition.z;
+                    const targetAngle = Math.atan2(-dx, -dz);
+                    
+                    let angleDiff = targetAngle - playerRotation;
+                    while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
+                    while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
+                    
+                    if (Math.abs(angleDiff) > 0.1) {
+                        // Need to turn
+                        isTurning = true;
+                        targetRotation = targetAngle;
+                    } else {
+                        // Move forward
+                        const moveX = -Math.sin(playerRotation) * AUTO_MOVE_SPEED;
+                        const moveZ = -Math.cos(playerRotation) * AUTO_MOVE_SPEED;
+                        
+                        const newX = playerPosition.x + moveX;
+                        const newZ = playerPosition.z + moveZ;
+                        
+                        if (isValidPosition(newX, newZ)) {
+                            playerPosition.x = newX;
+                            playerPosition.z = newZ;
+                        }
+                    }
                 }
             }
         }
@@ -1183,7 +1449,7 @@ function updateMovement() {
         // Update camera
         camera.position.set(playerPosition.x, 1.2, playerPosition.z);
         camera.rotation.y = playerRotation;
-        return; // Skip manual controls in auto mode
+        return;
     }
     
     // Manual controls (only when not in auto mode)
@@ -1359,9 +1625,10 @@ function updateStatsDisplay() {
         <div style="font-weight: bold; margin-bottom: 5px;">=== Stats ===</div>
         <div>World Position: (${playerPosition.x.toFixed(2)}, ${playerPosition.z.toFixed(2)})</div>
         <div>Cell Position: (${currentCell.x}, ${currentCell.z})</div>
-        <div>Cells Moved: ${cellsMoved}</div>
+        <div>Target Cell: ${targetCell ? `(${targetCell.x}, ${targetCell.z})` : 'None'}</div>
+        <div>Path Length: ${navigationPath.length > 0 ? navigationPath.length - 1 : 0}</div>
+        <div>Viewing Painting: ${isViewingPainting ? 'YES' : 'NO'}</div>
         <div>Auto Mode: ${autoMode ? 'ON' : 'OFF'}</div>
-        <div>Is Turning: ${isTurning ? 'YES' : 'NO'}</div>
     `;
 }
 
