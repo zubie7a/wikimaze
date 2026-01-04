@@ -17,6 +17,7 @@ let statsVisible = false; // Stats visibility state
 let wikipediaWalls = new Set(); // Track which walls have Wikipedia textures (format: "type-x-y")
 let globalWallMeshMap = null; // Global reference to wall mesh map for loading paintings on demand
 let globalCreateFramedPicture = null; // Global reference to createFramedPicture function
+let paintingPositions = new Map(); // Store painting world positions (key: "wallKey-side", value: {centerY, plateY})
 
 // Player position and rotation
 let playerPosition = { x: 0, z: 0 };
@@ -42,10 +43,16 @@ let currentPathIndex = 0; // Current index in the path
 let targetCell = null; // Current target cell {x, z}
 let isViewingPainting = false; // Whether currently viewing a painting
 let viewingPaintingTimer = 0; // Timer for viewing painting
-let paintingLookDirection = null; // Direction to look at painting
+let viewingPhase = 0; // 0: look at center, 1: look at plate, 2: reset to horizontal
+let paintingLookDirection = null; // Direction to look at painting (yaw)
+let paintingCenterPitch = 0; // Pitch angle to look at painting center
+let platePitch = 0; // Pitch angle to look at plate
+let currentPitch = 0; // Current vertical angle (pitch)
 let originalDirection = null; // Original direction before looking at painting
+const PLAYER_EYE_HEIGHT = 1.2; // Player camera height
 const TURN_SPEED = 0.03; // Speed of gradual turning
-const VIEWING_TIME = 180; // 3 seconds at 60fps
+const PITCH_SPEED = 0.02; // Speed of vertical look
+const PHASE_TIME = 90; // 1.5 seconds per phase at 60fps
 
 // Generate maze with walls on boundaries
 // Returns: { horizontalWalls, verticalWalls }
@@ -436,7 +443,8 @@ async function createMaze(wallData) {
     // side: 'positive' or 'negative' - which side of the wall to place the frame on
     // For horizontal walls: 'positive' = positive Z (south), 'negative' = negative Z (north)
     // For vertical walls: 'positive' = positive X (east), 'negative' = negative X (west)
-    function createFramedPicture(imageUrl, wall, wallType, side, title) {
+    // wallKey: unique identifier for the wall (e.g., "horizontal-5-3")
+    function createFramedPicture(imageUrl, wall, wallType, side, title, wallKey) {
         return new Promise((resolve) => {
             // Load texture first, then get dimensions from it (only loads once)
             const pictureTexture = textureLoader.load(
@@ -607,6 +615,21 @@ async function createMaze(wallData) {
                     // Add frame group to wall
                     wall.add(frameGroup);
                     
+                    // Store painting positions for viewing
+                    if (wallKey) {
+                        const wallWorldY = wall.position.y;
+                        const paintingCenterY = wallWorldY + randomY;
+                        // Plate is positioned at -frameHeight/2 - frameThickness - plateHeight/2 relative to frame center
+                        // Use approximate plate height if title exists
+                        const plateOffsetY = title ? (-frameHeight / 2 - frameThickness - 0.05) : 0;
+                        const plateY = wallWorldY + randomY + plateOffsetY;
+                        
+                        paintingPositions.set(`${wallKey}-${side}`, {
+                            centerY: paintingCenterY,
+                            plateY: plateY
+                        });
+                    }
+                    
                     resolve();
                 },
                 undefined,
@@ -691,7 +714,7 @@ async function createMaze(wallData) {
                 
                 const result = await fetchRandomWikipediaImage();
                 if (result && result.imageUrl) {
-                    await createFramedPicture(result.imageUrl, wall, type, side, result.title);
+                    await createFramedPicture(result.imageUrl, wall, type, side, result.title, wallKey);
                 } else {
                     // Failed - unreserve
                     wikipediaWalls.delete(wallKey);
@@ -702,10 +725,10 @@ async function createMaze(wallData) {
                 const result2 = await fetchRandomWikipediaImage();
                 
                 if (result1 && result1.imageUrl) {
-                    await createFramedPicture(result1.imageUrl, wall, type, 'positive', result1.title);
+                    await createFramedPicture(result1.imageUrl, wall, type, 'positive', result1.title, wallKey);
                 }
                 if (result2 && result2.imageUrl) {
-                    await createFramedPicture(result2.imageUrl, wall, type, 'negative', result2.title);
+                    await createFramedPicture(result2.imageUrl, wall, type, 'negative', result2.title, wallKey);
                 }
                 
                 if (!(result1 && result1.imageUrl) && !(result2 && result2.imageUrl)) {
@@ -793,8 +816,10 @@ function init() {
         currentPathIndex = 0;
         isViewingPainting = false;
         viewingPaintingTimer = 0;
+        viewingPhase = 0;
         paintingLookDirection = null;
         originalDirection = null;
+        currentPitch = 0;
     }
     
     // Start animation loop
@@ -839,8 +864,10 @@ function onKeyDown(event) {
             currentPathIndex = 0;
             isViewingPainting = false;
             viewingPaintingTimer = 0;
+            viewingPhase = 0;
             paintingLookDirection = null;
             originalDirection = null;
+            currentPitch = 0;
             break;
         case 't':
         case 'T':
@@ -1099,7 +1126,7 @@ async function loadPaintingInCell(cellX, cellZ) {
         // Load a painting on this wall
         const result = await fetchRandomWikipediaImage();
         if (result && result.imageUrl) {
-            await globalCreateFramedPicture(result.imageUrl, wallMesh, wall.type, wall.facingSide, result.title);
+            await globalCreateFramedPicture(result.imageUrl, wallMesh, wall.type, wall.facingSide, result.title, wall.key);
             return wall;
         } else {
             // Failed to load - unreserve the wall
@@ -1279,7 +1306,20 @@ function updateMovement() {
         if (isViewingPainting) {
             viewingPaintingTimer++;
             
-            // Look at the painting
+            // Determine target pitch based on phase
+            // Phase 0: Look at center of painting
+            // Phase 1: Look at plate below
+            // Phase 2: Reset to horizontal
+            let targetPitch;
+            if (viewingPhase === 0) {
+                targetPitch = paintingCenterPitch;
+            } else if (viewingPhase === 1) {
+                targetPitch = platePitch;
+            } else {
+                targetPitch = 0; // Reset to horizontal
+            }
+            
+            // Smoothly adjust horizontal rotation (yaw)
             if (paintingLookDirection !== null) {
                 let angleDiff = paintingLookDirection - playerRotation;
                 while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
@@ -1292,19 +1332,36 @@ function updateMovement() {
                 }
             }
             
-            // After viewing time, pick a new target
-            if (viewingPaintingTimer >= VIEWING_TIME) {
-                isViewingPainting = false;
+            // Smoothly adjust vertical rotation (pitch)
+            let pitchDiff = targetPitch - currentPitch;
+            if (Math.abs(pitchDiff) > PITCH_SPEED) {
+                currentPitch += Math.sign(pitchDiff) * PITCH_SPEED;
+            } else {
+                currentPitch = targetPitch;
+            }
+            
+            // Advance to next phase after time
+            if (viewingPaintingTimer >= PHASE_TIME) {
                 viewingPaintingTimer = 0;
-                paintingLookDirection = null;
-                originalDirection = null;
-                targetCell = null;
-                navigationPath = [];
-                currentPathIndex = 0;
+                viewingPhase++;
+                
+                // After phase 2, done viewing
+                if (viewingPhase > 2) {
+                    isViewingPainting = false;
+                    viewingPhase = 0;
+                    paintingLookDirection = null;
+                    originalDirection = null;
+                    currentPitch = 0;
+                    targetCell = null;
+                    navigationPath = [];
+                    currentPathIndex = 0;
+                }
             }
             
             camera.position.set(playerPosition.x, 1.2, playerPosition.z);
+            camera.rotation.order = 'YXZ'; // Ensure proper rotation order
             camera.rotation.y = playerRotation;
+            camera.rotation.x = currentPitch;
             return;
         }
         
@@ -1390,8 +1447,24 @@ function updateMovement() {
                             const dz = painting.worldZ - playerPosition.z;
                             paintingLookDirection = Math.atan2(-dx, -dz);
                             originalDirection = playerRotation;
+                            
+                            // Calculate pitch angles based on stored painting positions
+                            const horizontalDist = Math.sqrt(dx * dx + dz * dz);
+                            const posKey = `${painting.key}-${painting.facingSide}`;
+                            const positions = paintingPositions.get(posKey);
+                            if (positions) {
+                                paintingCenterPitch = Math.atan2(positions.centerY - PLAYER_EYE_HEIGHT, horizontalDist);
+                                platePitch = Math.atan2(positions.plateY - PLAYER_EYE_HEIGHT, horizontalDist);
+                            } else {
+                                // Fallback to approximate values
+                                paintingCenterPitch = Math.atan2(1.0 - PLAYER_EYE_HEIGHT, horizontalDist);
+                                platePitch = Math.atan2(0.5 - PLAYER_EYE_HEIGHT, horizontalDist);
+                            }
+                            
                             isViewingPainting = true;
                             viewingPaintingTimer = 0;
+                            viewingPhase = 0;
+                            currentPitch = 0;
                             console.log(`Looking at painting on wall ${painting.key}`);
                         } else {
                             // No paintings - try to load one
@@ -1402,8 +1475,24 @@ function updateMovement() {
                                     const dz = wall.worldZ - playerPosition.z;
                                     paintingLookDirection = Math.atan2(-dx, -dz);
                                     originalDirection = playerRotation;
+                                    
+                                    // Calculate pitch angles based on stored painting positions
+                                    const horizontalDist = Math.sqrt(dx * dx + dz * dz);
+                                    const posKey = `${wall.key}-${wall.facingSide}`;
+                                    const positions = paintingPositions.get(posKey);
+                                    if (positions) {
+                                        paintingCenterPitch = Math.atan2(positions.centerY - PLAYER_EYE_HEIGHT, horizontalDist);
+                                        platePitch = Math.atan2(positions.plateY - PLAYER_EYE_HEIGHT, horizontalDist);
+                                    } else {
+                                        // Fallback to approximate values
+                                        paintingCenterPitch = Math.atan2(1.0 - PLAYER_EYE_HEIGHT, horizontalDist);
+                                        platePitch = Math.atan2(0.5 - PLAYER_EYE_HEIGHT, horizontalDist);
+                                    }
+                                    
                                     isViewingPainting = true;
                                     viewingPaintingTimer = 0;
+                                    viewingPhase = 0;
+                                    currentPitch = 0;
                                     console.log(`Loaded painting on wall ${wall.key}`);
                                 } else {
                                     // No wall available - pick new target
@@ -1448,7 +1537,9 @@ function updateMovement() {
         
         // Update camera
         camera.position.set(playerPosition.x, 1.2, playerPosition.z);
+        camera.rotation.order = 'YXZ';
         camera.rotation.y = playerRotation;
+        camera.rotation.x = 0; // Keep horizontal when not viewing paintings
         return;
     }
     
@@ -1487,7 +1578,9 @@ function updateMovement() {
     
     // Update camera
     camera.position.set(playerPosition.x, 1.2, playerPosition.z);
+    camera.rotation.order = 'YXZ';
     camera.rotation.y = playerRotation;
+    camera.rotation.x = 0; // Keep horizontal in manual mode
 }
 
 // Draw minimap
@@ -1627,7 +1720,7 @@ function updateStatsDisplay() {
         <div>Cell Position: (${currentCell.x}, ${currentCell.z})</div>
         <div>Target Cell: ${targetCell ? `(${targetCell.x}, ${targetCell.z})` : 'None'}</div>
         <div>Path Length: ${navigationPath.length > 0 ? navigationPath.length - 1 : 0}</div>
-        <div>Viewing Painting: ${isViewingPainting ? 'YES' : 'NO'}</div>
+        <div>Viewing Painting: ${isViewingPainting ? `Phase ${viewingPhase + 1}/3` : 'NO'}</div>
         <div>Auto Mode: ${autoMode ? 'ON' : 'OFF'}</div>
     `;
 }
