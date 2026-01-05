@@ -1,11 +1,17 @@
 // Maze dimensions
 const MAZE_SIZE = 10;
-const OPENSPACE_SIZE = 11; // Open space uses 11x11 for center doors
+let openspaceSize = 7; // Open space size (variable, always odd for center doors)
+const OPENSPACE_SIZES = [3, 5, 7]; // Possible room sizes
 const CELL_SIZE = 2;
 
 // Get effective maze size based on scene mode
 function getEffectiveSize() {
-    return sceneMode === 'openspace' ? OPENSPACE_SIZE : MAZE_SIZE;
+    return sceneMode === 'openspace' ? openspaceSize : MAZE_SIZE;
+}
+
+// Get a random odd size for openspace rooms
+function getRandomOpenspaceSize() {
+    return OPENSPACE_SIZES[Math.floor(Math.random() * OPENSPACE_SIZES.length)];
 }
 const WALL_HEIGHT = 3;
 const WALL_THICKNESS = 0.05; // Very thin flat walls
@@ -33,6 +39,8 @@ let globalWallMeshMap = null; // Global reference to wall mesh map for loading p
 let globalCreateFramedPicture = null; // Global reference to createFramedPicture function
 let paintingPositions = new Map(); // Store painting world positions (key: "wallKey-side", value: {centerY, plateY})
 let frameGroups = new Map(); // Store frame groups per wall (key: "wallKey-side", value: {frameGroup, wall})
+let isTransitioningRoom = false; // Prevent concurrent door crossings in openspace mode
+let mazeGeneration = 0; // Counter to invalidate stale loading operations
 
 
 // Player position and rotation
@@ -1019,6 +1027,9 @@ async function createMaze(wallData) {
     // Asynchronously load Wikipedia images and create framed pictures
     // Use BFS from initial position to order wall loading
     (async () => {
+        // Capture current generation to detect if we've been invalidated
+        const myGeneration = mazeGeneration;
+        
         // BFS to get cells in exploration order
         // Start position depends on scene mode
         let startCell;
@@ -1132,9 +1143,9 @@ async function createMaze(wallData) {
         
         // Load Wikipedia images in BFS order from player start
         for (const { wallKey, type } of wallsInOrder) {
-            // Check for cancellation
-            if (cancelLoading) {
-                console.log('Initial loading cancelled');
+            // Check for cancellation or generation change (new maze was created)
+            if (cancelLoading || mazeGeneration !== myGeneration) {
+                console.log('Initial loading cancelled or generation changed');
                 isLoadingImages = false;
                 return;
             }
@@ -1182,7 +1193,7 @@ async function createMaze(wallData) {
                 }
                 
                 const result = await getWikipediaImage();
-                if (cancelLoading) { isLoadingImages = false; return; }
+                if (cancelLoading || mazeGeneration !== myGeneration) { isLoadingImages = false; return; }
                 if (result && result.imageUrl) {
                     await createFramedPicture(result.imageUrl, wall, type, side, result.title, wallKey);
                 } else {
@@ -1193,14 +1204,14 @@ async function createMaze(wallData) {
             } else {
                 // Internal wall: place images on both sides
                 const result1 = await getWikipediaImage();
-                if (cancelLoading) { isLoadingImages = false; return; }
+                if (cancelLoading || mazeGeneration !== myGeneration) { isLoadingImages = false; return; }
                 if (result1 && result1.imageUrl) {
                     await createFramedPicture(result1.imageUrl, wall, type, 'positive', result1.title, wallKey);
                 }
                 loadedImagesCount++;
                 
                 const result2 = await getWikipediaImage();
-                if (cancelLoading) { isLoadingImages = false; return; }
+                if (cancelLoading || mazeGeneration !== myGeneration) { isLoadingImages = false; return; }
                 if (result2 && result2.imageUrl) {
                     await createFramedPicture(result2.imageUrl, wall, type, 'negative', result2.title, wallKey);
                 }
@@ -1266,6 +1277,9 @@ async function regenerateScene() {
     
     // Reset cancel flag before generating new maze
     cancelLoading = false;
+    
+    // Increment generation to invalidate any stale loading operations
+    mazeGeneration++;
     
     // Generate and add new maze
     mazeData = generateMaze(getEffectiveSize());
@@ -2319,19 +2333,10 @@ function updateMovement() {
                         // Door crossing for openspace mode (auto)
                         if (sceneMode === 'openspace') {
                             const halfSize = (getEffectiveSize() * CELL_SIZE) / 2;
-                            const roomSize = getEffectiveSize() * CELL_SIZE;
                             
-                            if (playerPosition.x < -halfSize) {
-                                playerPosition.x += roomSize;
-                                handleOpenspaceDoorCrossing();
-                            } else if (playerPosition.x > halfSize) {
-                                playerPosition.x -= roomSize;
-                                handleOpenspaceDoorCrossing();
-                            } else if (playerPosition.z < -halfSize) {
-                                playerPosition.z += roomSize;
-                                handleOpenspaceDoorCrossing();
-                            } else if (playerPosition.z > halfSize) {
-                                playerPosition.z -= roomSize;
+                            // Player will be repositioned to center in handleOpenspaceDoorCrossing
+                            if (playerPosition.x < -halfSize || playerPosition.x > halfSize ||
+                                playerPosition.z < -halfSize || playerPosition.z > halfSize) {
                                 handleOpenspaceDoorCrossing();
                             }
                         }
@@ -2402,24 +2407,11 @@ function updateMovement() {
     // Door crossing for openspace mode
     if (sceneMode === 'openspace') {
         const halfSize = (getEffectiveSize() * CELL_SIZE) / 2;
-        const roomSize = getEffectiveSize() * CELL_SIZE;
         
         // Check if player crossed through a door (beyond the boundary)
-        if (playerPosition.x < -halfSize) {
-            // Crossed west door - teleport to east side
-            playerPosition.x += roomSize;
-            handleOpenspaceDoorCrossing();
-        } else if (playerPosition.x > halfSize) {
-            // Crossed east door - teleport to west side
-            playerPosition.x -= roomSize;
-            handleOpenspaceDoorCrossing();
-        } else if (playerPosition.z < -halfSize) {
-            // Crossed north door - teleport to south side
-            playerPosition.z += roomSize;
-            handleOpenspaceDoorCrossing();
-        } else if (playerPosition.z > halfSize) {
-            // Crossed south door - teleport to north side
-            playerPosition.z -= roomSize;
+        // Player will be repositioned to center in handleOpenspaceDoorCrossing
+        if (playerPosition.x < -halfSize || playerPosition.x > halfSize ||
+            playerPosition.z < -halfSize || playerPosition.z > halfSize) {
             handleOpenspaceDoorCrossing();
         }
     }
@@ -2620,6 +2612,9 @@ async function reloadAllPaintings() {
         await new Promise(resolve => setTimeout(resolve, 200));
     }
     
+    // Capture current generation to detect if we've been invalidated
+    const myGeneration = mazeGeneration;
+    
     console.log('Starting new load...');
     isLoadingImages = true;
     cancelLoading = false;
@@ -2685,9 +2680,9 @@ async function reloadAllPaintings() {
     
     // Load images
     for (const { wallKey, type } of wallsWithDistance) {
-        // Check for cancellation
-        if (cancelLoading) {
-            console.log('Loading cancelled');
+        // Check for cancellation or generation change
+        if (cancelLoading || mazeGeneration !== myGeneration) {
+            console.log('Loading cancelled or generation changed');
             isLoadingImages = false;
             return;
         }
@@ -2725,7 +2720,7 @@ async function reloadAllPaintings() {
             }
             
             const result = await getWikipediaImage();
-            if (cancelLoading) { isLoadingImages = false; return; }
+            if (cancelLoading || mazeGeneration !== myGeneration) { isLoadingImages = false; return; }
             if (result && result.imageUrl) {
                 await globalCreateFramedPicture(result.imageUrl, wall, type, side, result.title, wallKey);
             } else {
@@ -2734,14 +2729,14 @@ async function reloadAllPaintings() {
             loadedImagesCount++;
         } else {
             const result1 = await getWikipediaImage();
-            if (cancelLoading) { isLoadingImages = false; return; }
+            if (cancelLoading || mazeGeneration !== myGeneration) { isLoadingImages = false; return; }
             if (result1 && result1.imageUrl) {
                 await globalCreateFramedPicture(result1.imageUrl, wall, type, 'positive', result1.title, wallKey);
             }
             loadedImagesCount++;
             
             const result2 = await getWikipediaImage();
-            if (cancelLoading) { isLoadingImages = false; return; }
+            if (cancelLoading || mazeGeneration !== myGeneration) { isLoadingImages = false; return; }
             if (result2 && result2.imageUrl) {
                 await globalCreateFramedPicture(result2.imageUrl, wall, type, 'negative', result2.title, wallKey);
             }
@@ -2770,17 +2765,35 @@ async function handleAlleyCrossing() {
     await reloadAllPaintings();
 }
 
-// Handle crossing openspace door - load fresh paintings
+// Handle crossing openspace door - generate new room with random size
 async function handleOpenspaceDoorCrossing() {
     if (sceneMode !== 'openspace') return;
     
-    console.log('Crossed door, loading new room...');
+    // Prevent concurrent door crossings (function is called from animation loop without await)
+    if (isTransitioningRoom) {
+        console.log('Already transitioning room, ignoring duplicate call');
+        return;
+    }
+    isTransitioningRoom = true;
     
-    // Clear current paintings
-    clearAllPaintings();
-    
-    // Load new paintings
-    await reloadAllPaintings();
+    try {
+        // Pick a new random room size
+        const newSize = getRandomOpenspaceSize();
+        console.log(`Crossed door, generating new ${newSize}x${newSize} room...`);
+        openspaceSize = newSize;
+        
+        // Regenerate the entire scene with new size
+        // Note: createMaze already starts loading paintings via its async IIFE
+        // Do NOT call reloadAllPaintings here as it would race with createMaze's loading
+        await regenerateScene();
+        
+        // Position player in center of new room
+        playerPosition.x = 0;
+        playerPosition.z = 0;
+        camera.position.set(playerPosition.x, 1.2, playerPosition.z);
+    } finally {
+        isTransitioningRoom = false;
+    }
 }
 
 // Update stats display
