@@ -1352,11 +1352,15 @@ async function regenerateScene() {
     scene.add(currentMazeGroup);
     
     // Update scene background based on mode
-    if (sceneMode === 'alley') {
-        scene.background = new THREE.Color(0x000000); // Dark for alley
-        scene.fog = new THREE.Fog(0x000000, CELL_SIZE * 0.5, CELL_SIZE * 4); // Fog from 0.5 to 4 cells
+    if (sceneMode === 'alley' || sceneMode === 'openspace') {
+        scene.background = new THREE.Color(0x000000); // Dark for alley and openspace
+        if (sceneMode === 'alley') {
+            scene.fog = new THREE.Fog(0x000000, CELL_SIZE * 0.5, CELL_SIZE * 4); // Fog from 0.5 to 4 cells
+        } else {
+            scene.fog = null;
+        }
     } else {
-        scene.background = new THREE.Color(0x87CEEB); // Sky blue
+        scene.background = new THREE.Color(0x87CEEB); // Sky blue for maze
         scene.fog = null;
     }
     
@@ -1396,11 +1400,15 @@ function init() {
     scene = new THREE.Scene();
     
     // Set up scene background based on mode
-    if (sceneMode === 'alley') {
-        scene.background = new THREE.Color(0x000000); // Dark for alley
-        scene.fog = new THREE.Fog(0x000000, CELL_SIZE * 0.5, CELL_SIZE * 4); // Fog from 0.5 to 4 cells
+    if (sceneMode === 'alley' || sceneMode === 'openspace') {
+        scene.background = new THREE.Color(0x000000); // Dark for alley and openspace
+        if (sceneMode === 'alley') {
+            scene.fog = new THREE.Fog(0x000000, CELL_SIZE * 0.5, CELL_SIZE * 4); // Fog from 0.5 to 4 cells
+        } else {
+            scene.fog = null;
+        }
     } else {
-        scene.background = new THREE.Color(0x87CEEB); // Sky blue
+        scene.background = new THREE.Color(0x87CEEB); // Sky blue for maze
         scene.fog = null;
     }
     
