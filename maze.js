@@ -28,6 +28,7 @@ let globalCreateFramedPicture = null; // Global reference to createFramedPicture
 let paintingPositions = new Map(); // Store painting world positions (key: "wallKey-side", value: {centerY, plateY})
 let frameGroups = new Map(); // Store frame groups per wall (key: "wallKey-side", value: {frameGroup, wall})
 
+
 // Player position and rotation
 let playerPosition = { x: 0, z: 0 };
 let playerRotation = 0;
@@ -2178,8 +2179,10 @@ function updateMovement() {
                             
                             if (playerPosition.x < minX) {
                                 playerPosition.x += alleyWidth;
+                                handleAlleyCrossing();
                             } else if (playerPosition.x > maxX) {
                                 playerPosition.x -= alleyWidth;
+                                handleAlleyCrossing();
                             }
                         }
                     }
@@ -2208,13 +2211,16 @@ function updateMovement() {
     let moveX = 0;
     let moveZ = 0;
     
+    // Use quarter speed in alley mode
+    const currentMoveSpeed = sceneMode === 'alley' ? MOVE_SPEED / 4 : MOVE_SPEED;
+    
     if (controls.forward) {
-        moveX -= Math.sin(playerRotation) * MOVE_SPEED;
-        moveZ -= Math.cos(playerRotation) * MOVE_SPEED;
+        moveX -= Math.sin(playerRotation) * currentMoveSpeed;
+        moveZ -= Math.cos(playerRotation) * currentMoveSpeed;
     }
     if (controls.backward) {
-        moveX += Math.sin(playerRotation) * MOVE_SPEED;
-        moveZ += Math.cos(playerRotation) * MOVE_SPEED;
+        moveX += Math.sin(playerRotation) * currentMoveSpeed;
+        moveZ += Math.cos(playerRotation) * currentMoveSpeed;
     }
     
     // Update position with collision detection
@@ -2236,8 +2242,10 @@ function updateMovement() {
         
         if (playerPosition.x < minX) {
             playerPosition.x += alleyWidth;
+            handleAlleyCrossing();
         } else if (playerPosition.x > maxX) {
             playerPosition.x -= alleyWidth;
+            handleAlleyCrossing();
         }
     }
     
@@ -2569,6 +2577,19 @@ async function reloadAllPaintings() {
     
     isLoadingImages = false;
     console.log('Finished loading images');
+}
+
+// Handle crossing alley boundary - load fresh paintings
+async function handleAlleyCrossing() {
+    if (sceneMode !== 'alley') return;
+    
+    console.log('Crossed alley boundary, loading fresh paintings...');
+    
+    // Clear current paintings
+    clearAllPaintings();
+    
+    // Load new paintings
+    await reloadAllPaintings();
 }
 
 // Update stats display
