@@ -1371,13 +1371,20 @@ async function regenerateScene() {
         playerPosition.x = 0; // Center of the alley (x = 0 in world coords)
         playerPosition.z = (alleyZ - MAZE_SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
         playerRotation = Math.PI / 2; // Face east (along the alley)
+    } else if (sceneMode === 'openspace') {
+        // Start in the center of the room
+        playerPosition.x = 0;
+        playerPosition.z = 0;
+        playerRotation = 0;
     } else {
+        // Maze mode - start in corner
         const SIZE = getEffectiveSize();
         playerPosition.x = (-SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
         playerPosition.z = (-SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
         playerRotation = 0;
     }
     camera.position.set(playerPosition.x, 1.2, playerPosition.z);
+    camera.rotation.y = playerRotation;
     
     // Reset auto mode state
     targetCell = null;
@@ -1443,13 +1450,20 @@ function init() {
         playerPosition.x = 0;
         playerPosition.z = (alleyZ - MAZE_SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
         playerRotation = Math.PI / 2; // Face east
+    } else if (sceneMode === 'openspace') {
+        // Start in the center of the room
+        playerPosition.x = 0;
+        playerPosition.z = 0;
+        playerRotation = 0;
     } else {
-        // Default: top-left corner
+        // Maze mode: top-left corner
         const SIZE = getEffectiveSize();
         playerPosition.x = (-SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
         playerPosition.z = (-SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
+        playerRotation = 0;
     }
     camera.position.set(playerPosition.x, 1.2, playerPosition.z);
+    camera.rotation.y = playerRotation;
     
     // Renderer
     renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -2407,10 +2421,15 @@ function updateMovement() {
                         if (sceneMode === 'openspace') {
                             const halfSize = (getEffectiveSize() * CELL_SIZE) / 2;
                             
-                            // Player will be repositioned to center in handleOpenspaceDoorCrossing
-                            if (playerPosition.x < -halfSize || playerPosition.x > halfSize ||
-                                playerPosition.z < -halfSize || playerPosition.z > halfSize) {
-                                handleOpenspaceDoorCrossing();
+                            // Detect which door was crossed and pass to handler
+                            let exitDirection = null;
+                            if (playerPosition.x < -halfSize) exitDirection = 'west';
+                            else if (playerPosition.x > halfSize) exitDirection = 'east';
+                            else if (playerPosition.z < -halfSize) exitDirection = 'north';
+                            else if (playerPosition.z > halfSize) exitDirection = 'south';
+                            
+                            if (exitDirection) {
+                                handleOpenspaceDoorCrossing(exitDirection);
                             }
                         }
                     }
@@ -2481,11 +2500,15 @@ function updateMovement() {
     if (sceneMode === 'openspace') {
         const halfSize = (getEffectiveSize() * CELL_SIZE) / 2;
         
-        // Check if player crossed through a door (beyond the boundary)
-        // Player will be repositioned to center in handleOpenspaceDoorCrossing
-        if (playerPosition.x < -halfSize || playerPosition.x > halfSize ||
-            playerPosition.z < -halfSize || playerPosition.z > halfSize) {
-            handleOpenspaceDoorCrossing();
+        // Detect which door was crossed and pass to handler
+        let exitDirection = null;
+        if (playerPosition.x < -halfSize) exitDirection = 'west';
+        else if (playerPosition.x > halfSize) exitDirection = 'east';
+        else if (playerPosition.z < -halfSize) exitDirection = 'north';
+        else if (playerPosition.z > halfSize) exitDirection = 'south';
+        
+        if (exitDirection) {
+            handleOpenspaceDoorCrossing(exitDirection);
         }
     }
     
@@ -2839,7 +2862,8 @@ async function handleAlleyCrossing() {
 }
 
 // Handle crossing openspace door - generate new room with random size
-async function handleOpenspaceDoorCrossing() {
+// exitDirection: 'north', 'south', 'east', 'west' - which door the player exited through
+async function handleOpenspaceDoorCrossing(exitDirection) {
     if (sceneMode !== 'openspace') return;
     
     // Prevent concurrent door crossings (function is called from animation loop without await)
@@ -2852,7 +2876,7 @@ async function handleOpenspaceDoorCrossing() {
     try {
         // Pick a new random room size
         const newSize = getRandomOpenspaceSize();
-        console.log(`Crossed door, generating new ${newSize}x${newSize} room...`);
+        console.log(`Crossed ${exitDirection} door, generating new ${newSize}x${newSize} room...`);
         openspaceSize = newSize;
         
         // Regenerate the entire scene with new size
@@ -2860,10 +2884,43 @@ async function handleOpenspaceDoorCrossing() {
         // Do NOT call reloadAllPaintings here as it would race with createMaze's loading
         await regenerateScene();
         
-        // Position player in center of new room
-        playerPosition.x = 0;
-        playerPosition.z = 0;
+        // Position player at the opposite door of the new room
+        const newHalfSize = (newSize * CELL_SIZE) / 2;
+        const doorOffset = 0.5; // How far inside the door to spawn
+        
+        switch (exitDirection) {
+            case 'east':
+                // Exited east, spawn at west door, face center (east)
+                playerPosition.x = -newHalfSize + doorOffset;
+                playerPosition.z = 0;
+                playerRotation = -Math.PI / 2; // Face east (toward center)
+                break;
+            case 'west':
+                // Exited west, spawn at east door, face center (west)
+                playerPosition.x = newHalfSize - doorOffset;
+                playerPosition.z = 0;
+                playerRotation = Math.PI / 2; // Face west (toward center)
+                break;
+            case 'south':
+                // Exited south, spawn at north door, face center (south)
+                playerPosition.x = 0;
+                playerPosition.z = -newHalfSize + doorOffset;
+                playerRotation = Math.PI; // Face south (toward center)
+                break;
+            case 'north':
+                // Exited north, spawn at south door, face center (north)
+                playerPosition.x = 0;
+                playerPosition.z = newHalfSize - doorOffset;
+                playerRotation = 0; // Face north (toward center)
+                break;
+            default:
+                // Fallback to center
+                playerPosition.x = 0;
+                playerPosition.z = 0;
+        }
+        
         camera.position.set(playerPosition.x, 1.2, playerPosition.z);
+        camera.rotation.y = playerRotation;
     } finally {
         isTransitioningRoom = false;
     }
