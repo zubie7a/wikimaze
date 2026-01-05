@@ -45,6 +45,7 @@ let mazeGeneration = 0; // Counter to invalidate stale loading operations
 let globalAmbientLight = null; // Reference to ambient light for updating
 let globalDirectionalLight = null; // Reference to directional light for updating
 let flickeringLights = []; // Array of {light, lamp, baseIntensity} for flickering effect
+let creepyEyes = []; // Array of blinking eye pairs [{leftEye, rightEye, glow, nextBlinkTime, isBlinking}, ...]
 
 
 // Player position and rotation
@@ -493,10 +494,10 @@ async function createMaze(wallData) {
         
         for (let x = -halfMaze + lampSpacing / 2; x < halfMaze; x += lampSpacing) {
             for (let z = -halfMaze + lampSpacing / 2; z < halfMaze; z += lampSpacing) {
-                // Randomly determine lamp state: 70% on, 15% off, 15% flickering
+                // Randomly determine lamp state: 80% on, 10% off, 10% flickering
                 const rand = Math.random();
-                const isOff = rand < 0.15;
-                const isFlickering = rand >= 0.15 && rand < 0.30;
+                const isOff = rand < 0.10;
+                const isFlickering = rand >= 0.10 && rand < 0.20;
                 
                 // Create lamp fixture geometry (square)
                 const lampGeometry = new THREE.BoxGeometry(lampSize, lampHeight, lampSize);
@@ -671,6 +672,100 @@ async function createMaze(wallData) {
         eastDoor.rotation.y = -Math.PI / 2;
         eastDoor.position.set(halfSize - WALL_THICKNESS/2 - 0.01, doorY, 0);
         group.add(eastDoor);
+        
+        // Add creepy glowing eyes in random doors (backrooms only)
+        if (textureStyle === 'backrooms') {
+            creepyEyes = []; // Reset eye pairs
+            
+            const eyeRadius = 0.008;
+            const eyeSpacing = 0.025; // Distance between eyes (closer together)
+            
+            // Glowing eye material (white, glowing)
+            const eyeMaterial = new THREE.MeshBasicMaterial({
+                color: 0xFFFFFF,
+                transparent: true,
+                opacity: 1.0
+            });
+            
+            // Create eye geometry
+            const eyeGeometry = new THREE.SphereGeometry(eyeRadius, 8, 8);
+            
+            // Create two pairs of eyes at random doors
+            const usedDoors = [];
+            for (let pair = 0; pair < 2; pair++) {
+                // Pick a random door (can be same door, different position)
+                const doorChoice = Math.floor(Math.random() * 4);
+                
+                // Random position within the door area
+                const randomOffsetRange = doorWidth * 0.35;
+                const randomHeightMin = 0.6;
+                const randomHeightMax = 1.9;
+                const eyeHeight = randomHeightMin + Math.random() * (randomHeightMax - randomHeightMin);
+                const randomOffset = (Math.random() - 0.5) * 2 * randomOffsetRange;
+                
+                let eyeX = 0, eyeZ = 0;
+                
+                // Position eyes at the door plane (visible from inside room)
+                switch (doorChoice) {
+                    case 0: // North door
+                        eyeZ = -halfSize + WALL_THICKNESS/2 + 0.02;
+                        eyeX = randomOffset;
+                        break;
+                    case 1: // South door
+                        eyeZ = halfSize - WALL_THICKNESS/2 - 0.02;
+                        eyeX = randomOffset;
+                        break;
+                    case 2: // West door
+                        eyeX = -halfSize + WALL_THICKNESS/2 + 0.02;
+                        eyeZ = randomOffset;
+                        break;
+                    case 3: // East door
+                        eyeX = halfSize - WALL_THICKNESS/2 - 0.02;
+                        eyeZ = randomOffset;
+                        break;
+                }
+                
+                // Create left eye
+                const leftEye = new THREE.Mesh(eyeGeometry, eyeMaterial.clone());
+                // Create right eye
+                const rightEye = new THREE.Mesh(eyeGeometry, eyeMaterial.clone());
+                
+                // Position eyes based on which door
+                if (doorChoice === 0 || doorChoice === 1) {
+                    // North/South doors - eyes spread along X axis
+                    leftEye.position.set(eyeX - eyeSpacing, eyeHeight, eyeZ);
+                    rightEye.position.set(eyeX + eyeSpacing, eyeHeight, eyeZ);
+                } else {
+                    // West/East doors - eyes spread along Z axis
+                    leftEye.position.set(eyeX, eyeHeight, eyeZ - eyeSpacing);
+                    rightEye.position.set(eyeX, eyeHeight, eyeZ + eyeSpacing);
+                }
+                
+                group.add(leftEye);
+                group.add(rightEye);
+                
+                // Add very subtle point light between the eyes for glow effect
+                const eyeGlow = new THREE.PointLight(0xFFFFFF, 0.05, 0.5, 2);
+                eyeGlow.position.set(
+                    (leftEye.position.x + rightEye.position.x) / 2,
+                    eyeHeight,
+                    (leftEye.position.z + rightEye.position.z) / 2
+                );
+                group.add(eyeGlow);
+                
+                // Track eyes for blinking animation
+                creepyEyes.push({
+                    leftEye: leftEye,
+                    rightEye: rightEye,
+                    glow: eyeGlow,
+                    nextBlinkTime: performance.now() + 2000 + Math.random() * 4000,
+                    isBlinking: false,
+                    blinkEndTime: 0
+                });
+            }
+        } else {
+            creepyEyes = [];
+        }
     }
     
     // Texture loader for Wikipedia images
@@ -2806,12 +2901,46 @@ function updateFlickeringLights() {
     }
 }
 
+// Update creepy eyes blinking
+function updateCreepyEyes() {
+    if (!creepyEyes || creepyEyes.length === 0) return;
+    
+    const now = performance.now();
+    
+    for (const eyes of creepyEyes) {
+        if (eyes.isBlinking) {
+            // Currently blinking - check if blink should end
+            if (now >= eyes.blinkEndTime) {
+                // Open eyes
+                eyes.leftEye.material.opacity = 1.0;
+                eyes.rightEye.material.opacity = 1.0;
+                eyes.glow.intensity = 0.05;
+                eyes.isBlinking = false;
+                // Schedule next blink (2-6 seconds)
+                eyes.nextBlinkTime = now + 2000 + Math.random() * 4000;
+            }
+        } else {
+            // Not blinking - check if it's time to blink
+            if (now >= eyes.nextBlinkTime) {
+                // Close eyes (blink)
+                eyes.leftEye.material.opacity = 0.0;
+                eyes.rightEye.material.opacity = 0.0;
+                eyes.glow.intensity = 0.0;
+                eyes.isBlinking = true;
+                // Blink duration (100-200ms)
+                eyes.blinkEndTime = now + 100 + Math.random() * 100;
+            }
+        }
+    }
+}
+
 // Animation loop
 function animate() {
     requestAnimationFrame(animate);
     updateMovement();
     updateAlleyFog();
     updateFlickeringLights();
+    updateCreepyEyes();
     drawMinimap();
     if (statsVisible && statsDiv) {
         updateStatsDisplay();
