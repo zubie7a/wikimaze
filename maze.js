@@ -49,6 +49,7 @@ let targetRotation = 0; // Target rotation angle when turning
 let navigationPath = []; // Path to follow (array of {x, z} cell coordinates)
 let currentPathIndex = 0; // Current index in the path
 let targetCell = null; // Current target cell {x, z}
+let visitedCells = new Set(); // Track visited cells for navigation prioritization
 let isViewingPainting = false; // Whether currently viewing a painting
 let viewingPaintingTimer = 0; // Timer for viewing painting
 let viewingPhase = 0; // 0: look at center, 1: look at plate, 2: reset to horizontal
@@ -962,6 +963,7 @@ async function regenerateScene() {
     targetCell = null;
     navigationPath = [];
     currentPathIndex = 0;
+    visitedCells.clear();
     isViewingPainting = false;
     viewingPaintingTimer = 0;
     viewingPhase = 0;
@@ -1121,6 +1123,7 @@ function onKeyDown(event) {
             targetCell = null;
             navigationPath = [];
             currentPathIndex = 0;
+            visitedCells.clear();
             isViewingPainting = false;
             viewingPaintingTimer = 0;
             viewingPhase = 0;
@@ -1646,10 +1649,12 @@ function updateMovement() {
             // Not turning - follow path or pick new target
             const currentCell = worldToGrid(playerPosition.x, playerPosition.z);
             
-            // If we don't have a target, pick a random one with path <= 6
+            // If we don't have a target, pick a random one prioritizing unvisited cells
             if (!targetCell) {
-                const MAX_PATH_LENGTH = 6;
-                let attempts = 0;
+                // Mark current cell as visited
+                visitedCells.add(`${currentCell.x},${currentCell.z}`);
+                
+                let maxPathLength = 6;
                 let bestTarget = null;
                 let bestPath = [];
                 
@@ -1658,57 +1663,106 @@ function updateMovement() {
                     return x === 0 || x === MAZE_SIZE - 1 || z === 0 || z === MAZE_SIZE - 1;
                 };
                 
-                while (attempts < 50 && !bestTarget) {
-                    let candidateTarget;
-                    
+                // Helper to generate a random candidate cell
+                const generateCandidate = () => {
                     if (sceneMode === 'openspace') {
-                        // Pick a random edge cell
                         const edge = Math.floor(Math.random() * 4);
                         switch (edge) {
-                            case 0: // Top edge (z = 0)
-                                candidateTarget = { x: Math.floor(Math.random() * MAZE_SIZE), z: 0 };
-                                break;
-                            case 1: // Bottom edge (z = MAZE_SIZE - 1)
-                                candidateTarget = { x: Math.floor(Math.random() * MAZE_SIZE), z: MAZE_SIZE - 1 };
-                                break;
-                            case 2: // Left edge (x = 0)
-                                candidateTarget = { x: 0, z: Math.floor(Math.random() * MAZE_SIZE) };
-                                break;
-                            case 3: // Right edge (x = MAZE_SIZE - 1)
-                                candidateTarget = { x: MAZE_SIZE - 1, z: Math.floor(Math.random() * MAZE_SIZE) };
-                                break;
+                            case 0: return { x: Math.floor(Math.random() * MAZE_SIZE), z: 0 };
+                            case 1: return { x: Math.floor(Math.random() * MAZE_SIZE), z: MAZE_SIZE - 1 };
+                            case 2: return { x: 0, z: Math.floor(Math.random() * MAZE_SIZE) };
+                            case 3: return { x: MAZE_SIZE - 1, z: Math.floor(Math.random() * MAZE_SIZE) };
                         }
                     } else {
-                        // Normal maze mode - pick any cell
-                        candidateTarget = {
+                        return {
                             x: Math.floor(Math.random() * MAZE_SIZE),
                             z: Math.floor(Math.random() * MAZE_SIZE)
                         };
                     }
+                };
+                
+                // Calculate total valid cells for this scene mode
+                const totalValidCells = sceneMode === 'openspace' 
+                    ? (MAZE_SIZE * 4 - 4) // Edge cells (perimeter minus corners counted twice)
+                    : (MAZE_SIZE * MAZE_SIZE);
+                
+                // Check if all valid cells have been visited
+                const allVisited = visitedCells.size >= totalValidCells;
+                
+                // Try to find an unvisited cell first, then fall back to visited cells
+                const requireUnvisited = !allVisited;
+                
+                // Keep increasing max path length until we find a target
+                while (!bestTarget && maxPathLength <= MAZE_SIZE * 2) {
+                    let attempts = 0;
                     
-                    // Skip if same as current cell
-                    if (candidateTarget.x === currentCell.x && candidateTarget.z === currentCell.z) {
+                    while (attempts < 50 && !bestTarget) {
+                        const candidateTarget = generateCandidate();
+                        
+                        // Skip if same as current cell
+                        if (candidateTarget.x === currentCell.x && candidateTarget.z === currentCell.z) {
+                            attempts++;
+                            continue;
+                        }
+                        
+                        // Skip visited cells if we're prioritizing unvisited ones
+                        const cellKey = `${candidateTarget.x},${candidateTarget.z}`;
+                        if (requireUnvisited && visitedCells.has(cellKey)) {
+                            attempts++;
+                            continue;
+                        }
+                        
+                        const start = { x: currentCell.x, z: currentCell.z };
+                        const path = findPath(start, candidateTarget);
+                        
+                        // Accept if path exists and length <= current maxPathLength
+                        if (path.length > 0 && path.length <= maxPathLength + 1) {
+                            bestTarget = candidateTarget;
+                            bestPath = path;
+                        }
+                        
                         attempts++;
-                        continue;
                     }
                     
-                    const start = { x: currentCell.x, z: currentCell.z };
-                    const path = findPath(start, candidateTarget);
-                    
-                    // Accept if path exists and length <= MAX_PATH_LENGTH
-                    if (path.length > 0 && path.length <= MAX_PATH_LENGTH + 1) {
-                        bestTarget = candidateTarget;
-                        bestPath = path;
+                    // If no unvisited cell found within this distance, increase limit
+                    if (!bestTarget) {
+                        maxPathLength++;
                     }
-                    
-                    attempts++;
+                }
+                
+                // If still no target found (all unvisited exhausted), try visited cells
+                if (!bestTarget && requireUnvisited) {
+                    maxPathLength = 6;
+                    while (!bestTarget && maxPathLength <= MAZE_SIZE * 2) {
+                        let attempts = 0;
+                        while (attempts < 50 && !bestTarget) {
+                            const candidateTarget = generateCandidate();
+                            
+                            if (candidateTarget.x === currentCell.x && candidateTarget.z === currentCell.z) {
+                                attempts++;
+                                continue;
+                            }
+                            
+                            const start = { x: currentCell.x, z: currentCell.z };
+                            const path = findPath(start, candidateTarget);
+                            
+                            if (path.length > 0 && path.length <= maxPathLength + 1) {
+                                bestTarget = candidateTarget;
+                                bestPath = path;
+                            }
+                            
+                            attempts++;
+                        }
+                        if (!bestTarget) maxPathLength++;
+                    }
                 }
                 
                 if (bestTarget) {
                     targetCell = bestTarget;
                     navigationPath = bestPath;
                     currentPathIndex = navigationPath.length > 1 ? 1 : 0;
-                    console.log(`Target: (${targetCell.x}, ${targetCell.z}), path: ${navigationPath.length - 1} cells`);
+                    const isUnvisited = !visitedCells.has(`${bestTarget.x},${bestTarget.z}`);
+                    console.log(`Target: (${targetCell.x}, ${targetCell.z}), path: ${navigationPath.length - 1} cells${isUnvisited ? ' (unvisited)' : ' (revisit)'}`);
                 }
             }
             
@@ -1727,8 +1781,9 @@ function updateMovement() {
                     currentPathIndex++;
                     
                     if (currentPathIndex >= navigationPath.length) {
-                        // Reached final target - look for paintings
-                        console.log(`Reached target (${targetCell.x}, ${targetCell.z})`);
+                        // Reached final target - mark as visited and look for paintings
+                        visitedCells.add(`${targetCell.x},${targetCell.z}`);
+                        console.log(`Reached target (${targetCell.x}, ${targetCell.z}), visited: ${visitedCells.size} cells`);
                         
                         const paintings = getPaintingsAroundCell(targetCell.x, targetCell.z);
                         
@@ -2265,6 +2320,7 @@ function updateStatsDisplay() {
                 targetCell = null;
                 navigationPath = [];
                 currentPathIndex = 0;
+                visitedCells.clear();
                 isViewingPainting = false;
                 viewingPaintingTimer = 0;
                 viewingPhase = 0;
