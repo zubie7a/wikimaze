@@ -51,6 +51,8 @@ let creepyEyes = []; // Array of blinking eye pairs [{leftEye, rightEye, glow, n
 // Player position and rotation
 let playerPosition = { x: 0, z: 0 };
 let playerRotation = 0;
+let lastPlayerX = 0; // Track for alley eyes visibility
+let lastStillTime = 0; // When player last stopped moving
 const MOVE_SPEED = 0.1;
 const AUTO_MOVE_SPEED = 0.02; // Slower speed for automatic movement
 const ROTATION_SPEED = 0.05;
@@ -88,160 +90,20 @@ const PHASE_TIME = 90; // 1.5 seconds per phase at 60fps
 // Returns: { horizontalWalls, verticalWalls }
 // horizontalWalls[y][x] = true means wall between cell (x,y) and (x,y+1)
 // verticalWalls[y][x] = true means wall between cell (x,y) and (x+1,y)
+// 
+// Scene-specific generation is in separate files:
+// - generate-maze.js: generateMazeLayout(size)
+// - generate-alley.js: generateAlleyLayout(size)  
+// - generate-openspace.js: generateOpenspaceLayout(size)
 function generateMaze(size) {
-    // Initialize all walls as present
-    const horizontalWalls = Array(size + 1).fill(null).map(() => Array(size).fill(true));
-    const verticalWalls = Array(size).fill(null).map(() => Array(size + 1).fill(true));
-    
-    // Mark outer boundaries
-    for (let x = 0; x < size; x++) {
-        horizontalWalls[0][x] = true; // Top boundary
-        horizontalWalls[size][x] = true; // Bottom boundary
+    switch (sceneMode) {
+        case 'alley':
+            return generateAlleyLayout(size);
+        case 'openspace':
+            return generateOpenspaceLayout(size);
+        default:
+            return generateMazeLayout(size);
     }
-    for (let y = 0; y < size; y++) {
-        verticalWalls[y][0] = true; // Left boundary
-        verticalWalls[y][size] = true; // Right boundary
-    }
-    
-    // Track visited cells
-    const visited = Array(size).fill(null).map(() => Array(size).fill(false));
-    
-    // Recursive backtracking to carve paths
-    function carve(x, y) {
-        visited[y][x] = true;
-        
-        const directions = [
-            [0, -1], // North
-            [1, 0],  // East
-            [0, 1],  // South
-            [-1, 0]  // West
-        ];
-        
-        // Shuffle directions
-        for (let i = directions.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [directions[i], directions[j]] = [directions[j], directions[i]];
-        }
-        
-        for (const [dx, dy] of directions) {
-            const nx = x + dx;
-            const ny = y + dy;
-            
-            if (nx >= 0 && nx < size && ny >= 0 && ny < size && !visited[ny][nx]) {
-                // Remove wall between current and next cell
-                if (dx === 0) {
-                    // Vertical movement - remove horizontal wall
-                    const wallY = dy === -1 ? y : y + 1;
-                    horizontalWalls[wallY][x] = false;
-                } else {
-                    // Horizontal movement - remove vertical wall
-                    const wallX = dx === -1 ? x : x + 1;
-                    verticalWalls[y][wallX] = false;
-                }
-                
-                carve(nx, ny);
-            }
-        }
-    }
-    
-    // Start carving from (0, 0)
-    carve(0, 0);
-    
-    // Ensure all cells are visited (no isolated sections)
-    // If any cells weren't reached, connect them
-    for (let y = 0; y < size; y++) {
-        for (let x = 0; x < size; x++) {
-            if (!visited[y][x]) {
-                // Connect this isolated cell to a visited neighbor
-                // Try to connect to any visited neighbor
-                if (x > 0 && visited[y][x - 1]) {
-                    verticalWalls[y][x] = false; // Connect to left
-                    carve(x, y);
-                } else if (x < size - 1 && visited[y][x + 1]) {
-                    verticalWalls[y][x + 1] = false; // Connect to right
-                    carve(x, y);
-                } else if (y > 0 && visited[y - 1][x]) {
-                    horizontalWalls[y][x] = false; // Connect to top
-                    carve(x, y);
-                } else if (y < size - 1 && visited[y + 1][x]) {
-                    horizontalWalls[y + 1][x] = false; // Connect to bottom
-                    carve(x, y);
-                }
-            }
-        }
-    }
-    
-    // Entrance and exit remain walled (no gaps)
-    
-    // Post-processing: Remove some walls to create more open spaces
-    // This makes the maze more spacious while keeping it connected
-    const openSpaceChance = 0.3; // 30% chance to remove each internal wall
-    for (let y = 1; y < size; y++) {
-        for (let x = 0; x < size; x++) {
-            // Remove some horizontal walls (except boundaries)
-            if (Math.random() < openSpaceChance) {
-                horizontalWalls[y][x] = false;
-            }
-        }
-    }
-    for (let y = 0; y < size; y++) {
-        for (let x = 1; x < size; x++) {
-            // Remove some vertical walls (except boundaries)
-            if (Math.random() < openSpaceChance) {
-                verticalWalls[y][x] = false;
-            }
-        }
-    }
-    
-    // If in open space mode, remove ALL internal walls
-    if (sceneMode === 'openspace') {
-        // Remove all internal horizontal walls (keep boundaries at y=0 and y=size)
-        for (let y = 1; y < size; y++) {
-            for (let x = 0; x < size; x++) {
-                horizontalWalls[y][x] = false;
-            }
-        }
-        // Remove all internal vertical walls (keep boundaries at x=0 and x=size)
-        for (let y = 0; y < size; y++) {
-            for (let x = 1; x < size; x++) {
-                verticalWalls[y][x] = false;
-            }
-        }
-        // Note: Door walls are kept for visual but collision is handled separately in isValidPosition
-    }
-    
-    // If in alley mode, create a single-cell wide endless corridor
-    if (sceneMode === 'alley') {
-        // Reset all walls first
-        for (let y = 0; y <= size; y++) {
-            for (let x = 0; x < size; x++) {
-                horizontalWalls[y][x] = false;
-            }
-        }
-        for (let y = 0; y < size; y++) {
-            for (let x = 0; x <= size; x++) {
-                verticalWalls[y][x] = false;
-            }
-        }
-        
-        // Create a single alley in the middle row (z = size/2)
-        const alleyZ = Math.floor(size / 2);
-        
-        // Add walls on north side of alley (horizontal wall at alleyZ)
-        for (let x = 0; x < size; x++) {
-            horizontalWalls[alleyZ][x] = true;
-        }
-        
-        // Add walls on south side of alley (horizontal wall at alleyZ + 1)
-        for (let x = 0; x < size; x++) {
-            horizontalWalls[alleyZ + 1][x] = true;
-        }
-        
-        // Remove walls at the ends to allow wrapping (no east/west boundaries)
-        // The vertical walls at x=0 and x=size are already false
-    }
-    
-    return { horizontalWalls, verticalWalls };
 }
 
 
@@ -402,6 +264,9 @@ async function createMaze(wallData) {
     const group = new THREE.Group();
     const { horizontalWalls, verticalWalls } = wallData;
     const SIZE = getEffectiveSize(); // Use effective size for this scene
+    
+    // Reset creepy eyes (will be populated by alley or openspace+backrooms)
+    creepyEyes = [];
     
     // Create floor - color/texture depends on texture style
     const floorGeometry = new THREE.PlaneGeometry(
@@ -615,6 +480,68 @@ async function createMaze(wallData) {
             eastDense.rotation.y = Math.PI / 2;
             eastDense.position.set(halfAlleyLength - distFromEnd, WALL_HEIGHT / 2 - 0.5, alleyWorldZ);
             group.add(eastDense);
+        }
+        
+        // Add creepy eyes at both ends of the alley (backrooms only)
+        if (textureStyle === 'backrooms') {
+        
+        const eyeRadius = 0.012; // Small eyes
+        const eyeSpacing = 0.035;
+        
+        const eyeMaterial = new THREE.MeshBasicMaterial({
+            color: 0xFFFFFF,
+            transparent: true,
+            opacity: 1.0
+        });
+        
+        const eyeGeometry = new THREE.SphereGeometry(eyeRadius, 8, 8);
+        
+        // Create multiple pairs at each end
+        for (let pair = 0; pair < 4; pair++) {
+            // 2 pairs at west, 2 at east
+            const isEast = pair >= 2;
+            
+            // Random position within the alley opening
+            const randomHeightMin = 0.8;
+            const randomHeightMax = 1.7;
+            const eyeHeight = randomHeightMin + Math.random() * (randomHeightMax - randomHeightMin);
+            const randomZOffset = (Math.random() - 0.5) * CELL_SIZE * 0.5;
+            
+            // Base distance from player (will be updated dynamically)
+            // Keep them 1.5-2.5 cells ahead - visible but in the fog
+            const baseDist = CELL_SIZE * 2 + Math.random() * CELL_SIZE;
+            
+            const leftEye = new THREE.Mesh(eyeGeometry, eyeMaterial.clone());
+            const rightEye = new THREE.Mesh(eyeGeometry, eyeMaterial.clone());
+            
+            // Initial position (will be updated in animation loop)
+            const eyeZ = alleyWorldZ + randomZOffset;
+            leftEye.position.set(0, eyeHeight, eyeZ - eyeSpacing);
+            rightEye.position.set(0, eyeHeight, eyeZ + eyeSpacing);
+            
+            group.add(leftEye);
+            group.add(rightEye);
+            
+            const eyeGlow = new THREE.PointLight(0xFFFFFF, 0.08, 1, 2);
+            eyeGlow.position.set(0, eyeHeight, eyeZ);
+            group.add(eyeGlow);
+            
+            creepyEyes.push({
+                leftEye: leftEye,
+                rightEye: rightEye,
+                glow: eyeGlow,
+                nextBlinkTime: performance.now() + 2000 + Math.random() * 4000,
+                isBlinking: false,
+                blinkEndTime: 0,
+                // Alley-specific: track which end and distance
+                isAlleyEyes: true,
+                isEast: isEast,
+                baseDist: baseDist,
+                eyeHeight: eyeHeight,
+                zOffset: randomZOffset,
+                blinkCount: 0 // Track blinks for respawn
+            });
+        }
         }
     }
     
@@ -2906,29 +2833,132 @@ function updateCreepyEyes() {
     if (!creepyEyes || creepyEyes.length === 0) return;
     
     const now = performance.now();
+    const alleyWorldZ = window.alleyWorldZ;
+    
+    // Check if player is moving (alley mode)
+    let playerIsMoving = false;
+    let playerIsStill = false;
+    if (sceneMode === 'alley') {
+        const movementThreshold = 0.01;
+        if (Math.abs(playerPosition.x - lastPlayerX) > movementThreshold) {
+            // Player moved
+            lastStillTime = now;
+            playerIsMoving = true;
+        } else {
+            // Player is still - check if still for 0.5 seconds
+            playerIsStill = (now - lastStillTime) > 500;
+        }
+        lastPlayerX = playerPosition.x;
+    }
     
     for (const eyes of creepyEyes) {
-        if (eyes.isBlinking) {
-            // Currently blinking - check if blink should end
-            if (now >= eyes.blinkEndTime) {
-                // Open eyes
-                eyes.leftEye.material.opacity = 1.0;
-                eyes.rightEye.material.opacity = 1.0;
-                eyes.glow.intensity = 0.05;
-                eyes.isBlinking = false;
-                // Schedule next blink (2-6 seconds)
-                eyes.nextBlinkTime = now + 2000 + Math.random() * 4000;
+        // Handle alley eyes movement - stay at distance from player
+        if (eyes.isAlleyEyes && sceneMode === 'alley') {
+            const eyeSpacing = 0.035;
+            let targetX;
+            
+            if (eyes.isEast) {
+                targetX = playerPosition.x + eyes.baseDist;
+            } else {
+                targetX = playerPosition.x - eyes.baseDist;
             }
-        } else {
-            // Not blinking - check if it's time to blink
-            if (now >= eyes.nextBlinkTime) {
-                // Close eyes (blink)
+            
+            const eyeZ = alleyWorldZ + eyes.zOffset;
+            
+            // Update positions
+            eyes.leftEye.position.x = targetX;
+            eyes.leftEye.position.z = eyeZ - eyeSpacing;
+            eyes.rightEye.position.x = targetX;
+            eyes.rightEye.position.z = eyeZ + eyeSpacing;
+            eyes.glow.position.x = targetX;
+            eyes.glow.position.z = eyeZ;
+            
+            // Hide eyes when player is moving
+            if (playerIsMoving) {
                 eyes.leftEye.material.opacity = 0.0;
                 eyes.rightEye.material.opacity = 0.0;
                 eyes.glow.intensity = 0.0;
-                eyes.isBlinking = true;
-                // Blink duration (100-200ms)
-                eyes.blinkEndTime = now + 100 + Math.random() * 100;
+                eyes.hiddenByMovement = true;
+                eyes.gracePeriodUntil = 0;
+                continue; // Skip blinking logic while hidden
+            }
+            
+            // If player just stopped, schedule reappearance
+            if (eyes.hiddenByMovement && playerIsStill) {
+                eyes.hiddenByMovement = false;
+                // Respawn at new position
+                eyes.baseDist = CELL_SIZE * 2 + Math.random() * CELL_SIZE;
+                eyes.eyeHeight = 0.8 + Math.random() * 0.9;
+                eyes.zOffset = (Math.random() - 0.5) * CELL_SIZE * 0.5;
+                eyes.leftEye.position.y = eyes.eyeHeight;
+                eyes.rightEye.position.y = eyes.eyeHeight;
+                eyes.glow.position.y = eyes.eyeHeight;
+                // Make visible
+                eyes.leftEye.material.opacity = 1.0;
+                eyes.rightEye.material.opacity = 1.0;
+                eyes.glow.intensity = 0.08;
+                // Set grace period - no blinking for 2 seconds after appearing
+                eyes.gracePeriodUntil = now + 2000;
+                eyes.blinkCount = 0;
+                eyes.isBlinking = false;
+                console.log('Eyes spawned:', eyes.isEast ? 'EAST' : 'WEST', 'dist:', eyes.baseDist.toFixed(2), 'height:', eyes.eyeHeight.toFixed(2));
+                continue;
+            }
+            
+            // Skip blinking if still hidden or in grace period
+            if (eyes.hiddenByMovement) continue;
+            if (eyes.gracePeriodUntil && now < eyes.gracePeriodUntil) continue;
+            
+            // Grace period just ended - set up first blink
+            if (eyes.gracePeriodUntil && now >= eyes.gracePeriodUntil) {
+                eyes.gracePeriodUntil = 0;
+                eyes.nextBlinkTime = now + 2000 + Math.random() * 4000;
+            }
+        }
+        
+        // Handle blinking
+        if (eyes.isBlinking) {
+            if (now >= eyes.blinkEndTime) {
+                eyes.blinkCount = (eyes.blinkCount || 0) + 1;
+                
+                // After 2 blinks, respawn at new position (alley eyes only)
+                if (eyes.isAlleyEyes && eyes.blinkCount >= 2) {
+                    eyes.blinkCount = 0;
+                    eyes.baseDist = CELL_SIZE * 2 + Math.random() * CELL_SIZE;
+                    eyes.eyeHeight = 0.8 + Math.random() * 0.9;
+                    eyes.zOffset = (Math.random() - 0.5) * CELL_SIZE * 0.5;
+                    
+                    eyes.leftEye.position.y = eyes.eyeHeight;
+                    eyes.rightEye.position.y = eyes.eyeHeight;
+                    eyes.glow.position.y = eyes.eyeHeight;
+                    
+                    eyes.nextBlinkTime = now + 500 + Math.random() * 1500;
+                    eyes.leftEye.material.opacity = 0.0;
+                    eyes.rightEye.material.opacity = 0.0;
+                    eyes.glow.intensity = 0.0;
+                    eyes.isBlinking = false;
+                } else {
+                    eyes.leftEye.material.opacity = 1.0;
+                    eyes.rightEye.material.opacity = 1.0;
+                    eyes.glow.intensity = eyes.isAlleyEyes ? 0.08 : 0.05;
+                    eyes.isBlinking = false;
+                    eyes.nextBlinkTime = now + 2000 + Math.random() * 4000;
+                }
+            }
+        } else {
+            if (now >= eyes.nextBlinkTime) {
+                if (eyes.leftEye.material.opacity === 0.0 && (eyes.blinkCount || 0) === 0) {
+                    eyes.leftEye.material.opacity = 1.0;
+                    eyes.rightEye.material.opacity = 1.0;
+                    eyes.glow.intensity = eyes.isAlleyEyes ? 0.08 : 0.05;
+                    eyes.nextBlinkTime = now + 2000 + Math.random() * 4000;
+                } else {
+                    eyes.leftEye.material.opacity = 0.0;
+                    eyes.rightEye.material.opacity = 0.0;
+                    eyes.glow.intensity = 0.0;
+                    eyes.isBlinking = true;
+                    eyes.blinkEndTime = now + 100 + Math.random() * 100;
+                }
             }
         }
     }
