@@ -42,6 +42,8 @@ let paintingPositions = new Map(); // Store painting world positions (key: "wall
 let frameGroups = new Map(); // Store frame groups per wall (key: "wallKey-side", value: {frameGroup, wall})
 let isTransitioningRoom = false; // Prevent concurrent door crossings in openspace mode
 let mazeGeneration = 0; // Counter to invalidate stale loading operations
+let globalAmbientLight = null; // Reference to ambient light for updating
+let globalDirectionalLight = null; // Reference to directional light for updating
 
 
 // Player position and rotation
@@ -460,6 +462,39 @@ async function createMaze(wallData) {
     ceiling.rotation.x = Math.PI / 2;
     ceiling.position.y = WALL_HEIGHT - 0.5;
     group.add(ceiling);
+    
+    // Add ceiling lamps for backrooms style
+    if (textureStyle === 'backrooms') {
+        const lampWidth = 0.8;
+        const lampLength = 1.6;
+        const lampHeight = 0.05;
+        const lampY = WALL_HEIGHT - 0.52; // Just below ceiling
+        
+        // Emissive material for the lamp panels (glowing)
+        const lampMaterial = new THREE.MeshBasicMaterial({ 
+            color: 0xFFFAE6, // Warm fluorescent white
+            side: THREE.DoubleSide
+        });
+        
+        // Create a grid of ceiling lamps
+        const lampSpacing = CELL_SIZE * 1.5; // Space between lamps
+        const halfMaze = (SIZE * CELL_SIZE) / 2;
+        
+        for (let x = -halfMaze + lampSpacing / 2; x < halfMaze; x += lampSpacing) {
+            for (let z = -halfMaze + lampSpacing / 2; z < halfMaze; z += lampSpacing) {
+                // Create lamp fixture geometry
+                const lampGeometry = new THREE.BoxGeometry(lampWidth, lampHeight, lampLength);
+                const lamp = new THREE.Mesh(lampGeometry, lampMaterial);
+                lamp.position.set(x, lampY, z);
+                group.add(lamp);
+                
+                // Add a point light below each lamp
+                const lampLight = new THREE.PointLight(0xFFF5E0, 0.8, CELL_SIZE * 2.5, 1.5);
+                lampLight.position.set(x, lampY - 0.1, z);
+                group.add(lampLight);
+            }
+        }
+    }
     
     // In alley mode, create end darkening planes (not moving fog)
     if (sceneMode === 'alley') {
@@ -1382,6 +1417,24 @@ async function regenerateScene() {
     currentMazeGroup = await createMaze(mazeData);
     scene.add(currentMazeGroup);
     
+    // Update lighting based on texture style
+    if (globalAmbientLight) {
+        globalAmbientLight.intensity = textureStyle === 'backrooms' ? 0.15 : 0.6;
+    }
+    // Add/remove directional light based on texture style
+    if (textureStyle === 'backrooms') {
+        if (globalDirectionalLight && scene) {
+            scene.remove(globalDirectionalLight);
+            globalDirectionalLight = null;
+        }
+    } else {
+        if (!globalDirectionalLight && scene) {
+            globalDirectionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            globalDirectionalLight.position.set(10, 10, 10);
+            scene.add(globalDirectionalLight);
+        }
+    }
+    
     // Update scene background based on mode
     if (sceneMode === 'alley' || sceneMode === 'openspace') {
         scene.background = new THREE.Color(0x000000); // Dark for alley and openspace
@@ -1459,13 +1512,19 @@ function init() {
     );
     camera.position.set(0, 1.2, 0); // Lower eye level
     
-    // Lights
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
-    scene.add(ambientLight);
+    // Lights - reduced for backrooms (ceiling lamps provide light)
+    const ambientIntensity = textureStyle === 'backrooms' ? 0.15 : 0.6;
+    globalAmbientLight = new THREE.AmbientLight(0xffffff, ambientIntensity);
+    scene.add(globalAmbientLight);
     
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-    directionalLight.position.set(10, 10, 10);
-    scene.add(directionalLight);
+    // No directional light for backrooms (ceiling lamps are the light source)
+    if (textureStyle !== 'backrooms') {
+        globalDirectionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        globalDirectionalLight.position.set(10, 10, 10);
+        scene.add(globalDirectionalLight);
+    } else {
+        globalDirectionalLight = null;
+    }
     
     // Generate and add maze
     mazeData = generateMaze(getEffectiveSize());
