@@ -224,34 +224,61 @@ function generateMaze(size) {
 }
 
 
-// Fetch a random Wikipedia image and title
-async function fetchRandomWikipediaImage() {
-    const maxAttempts = 10;
+// Cache for random Wikipedia images
+let randomImageResults = [];
+let randomImageIndex = 0;
+
+// Fetch a batch of random Wikipedia images
+async function fetchRandomImageBatch() {
+    const maxAttempts = 3;
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
         try {
-            // Get a random Wikipedia article with its thumbnail
+            // Get 50 random Wikipedia articles with thumbnails
             const response = await fetch(
-                'https://en.wikipedia.org/w/api.php?action=query&generator=random&grnnamespace=0&prop=pageimages&pithumbsize=400&format=json&origin=*'
+                'https://en.wikipedia.org/w/api.php?action=query&generator=random&grnnamespace=0&grnlimit=50&prop=pageimages&pithumbsize=400&format=json&origin=*'
             );
             const data = await response.json();
             
             const pages = data.query?.pages;
             if (pages) {
-                const pageId = Object.keys(pages)[0];
-                const page = pages[pageId];
-                
-                if (page.thumbnail) {
-                    return {
+                const results = Object.values(pages)
+                    .filter(page => page.thumbnail)
+                    .map(page => ({
                         imageUrl: page.thumbnail.source,
                         title: page.title
-                    };
+                    }));
+                
+                if (results.length > 0) {
+                    // Shuffle for variety
+                    for (let i = results.length - 1; i > 0; i--) {
+                        const j = Math.floor(Math.random() * (i + 1));
+                        [results[i], results[j]] = [results[j], results[i]];
+                    }
+                    return results;
                 }
             }
         } catch (error) {
-            console.log('Error fetching Wikipedia image, retrying...', error);
+            console.log('Error fetching random Wikipedia images batch, retrying...', error);
         }
     }
-    return null; // No image found after max attempts
+    return [];
+}
+
+// Fetch a random Wikipedia image and title (uses batching for efficiency)
+async function fetchRandomWikipediaImage() {
+    // If cache is empty or exhausted, fetch a new batch
+    if (randomImageIndex >= randomImageResults.length) {
+        randomImageResults = await fetchRandomImageBatch();
+        randomImageIndex = 0;
+        
+        if (randomImageResults.length === 0) {
+            return null;
+        }
+    }
+    
+    const result = randomImageResults[randomImageIndex];
+    randomImageIndex++;
+    return result;
 }
 
 // Fetch Wikipedia images related to a topic
@@ -1145,10 +1172,12 @@ async function regenerateScene() {
     paintingPositions.clear();
     frameGroups.clear();
     
-    // Reset topic search cache
+    // Reset image caches
     topicSearchResults = [];
     topicSearchIndex = 0;
     topicResultsFetched = false;
+    randomImageResults = [];
+    randomImageIndex = 0;
     
     // Reset cancel flag before generating new maze
     cancelLoading = false;
@@ -2411,10 +2440,12 @@ async function reloadAllPaintings() {
     isLoadingImages = true;
     cancelLoading = false;
     
-    // Reset topic search cache
+    // Reset image caches
     topicSearchResults = [];
     topicSearchIndex = 0;
     topicResultsFetched = false;
+    randomImageResults = [];
+    randomImageIndex = 0;
     
     // Clear existing paintings
     clearAllPaintings();
