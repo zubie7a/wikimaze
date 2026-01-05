@@ -28,7 +28,7 @@ let collisionsEnabled = true; // Wall collision detection
 let statsDiv = null; // Stats display element
 let useRandomImages = true; // Whether to use random images or topic-based search
 let searchTopic = ''; // Topic to search for Wikipedia images
-let textureStyle = 'w95'; // 'w95' (framed with bricks) or 'entirewall' (image covers entire wall)
+let textureStyle = 'w95'; // 'w95' (framed with bricks), 'entirewall' (image covers entire wall), or 'backrooms'
 let isLoadingImages = false; // Whether images are currently being loaded
 let loadedImagesCount = 0; // Number of images loaded so far
 let totalImagesToLoad = 0; // Total number of images to load
@@ -399,21 +399,35 @@ async function createMaze(wallData) {
     const { horizontalWalls, verticalWalls } = wallData;
     const SIZE = getEffectiveSize(); // Use effective size for this scene
     
-    // Create floor - color depends on texture style
+    // Create floor - color/texture depends on texture style
     const floorGeometry = new THREE.PlaneGeometry(
         SIZE * CELL_SIZE,
         SIZE * CELL_SIZE
     );
-    const floorColor = textureStyle === 'entirewall' ? 0xE8E8E8 : 0x8B4513; // Whiteish or Brown
-    const floorMaterial = new THREE.MeshLambertMaterial({ 
-        color: floorColor
-    });
+    let floorMaterial;
+    if (textureStyle === 'entirewall') {
+        floorMaterial = new THREE.MeshLambertMaterial({ color: 0xE8E8E8 }); // Whiteish
+    } else if (textureStyle === 'backrooms') {
+        // Backrooms carpet texture
+        const floorTextureLoader = new THREE.TextureLoader();
+        const floorTexture = floorTextureLoader.load(
+            'https://i.imgur.com/tSS8RvD.jpeg',
+            function(texture) {
+                texture.wrapS = THREE.RepeatWrapping;
+                texture.wrapT = THREE.RepeatWrapping;
+                texture.repeat.set(SIZE * 2, SIZE * 2); // Tile the carpet
+            }
+        );
+        floorMaterial = new THREE.MeshLambertMaterial({ map: floorTexture });
+    } else {
+        floorMaterial = new THREE.MeshLambertMaterial({ color: 0x8B4513 }); // Brown (W95)
+    }
     const floor = new THREE.Mesh(floorGeometry, floorMaterial);
     floor.rotation.x = -Math.PI / 2;
     floor.position.y = -0.5;
     group.add(floor);
     
-    // Create ceiling - texture for W95, solid color for entirewall
+    // Create ceiling - texture/color depends on texture style
     const ceilingGeometry = new THREE.PlaneGeometry(
         SIZE * CELL_SIZE,
         SIZE * CELL_SIZE
@@ -422,6 +436,10 @@ async function createMaze(wallData) {
     if (textureStyle === 'entirewall') {
         ceilingMaterial = new THREE.MeshLambertMaterial({ 
             color: 0x505050 // Grayish
+        });
+    } else if (textureStyle === 'backrooms') {
+        ceilingMaterial = new THREE.MeshLambertMaterial({ 
+            color: 0xF5F5DC // Fluorescent off-white/beige
         });
     } else {
         // W95 style - use ceiling texture
@@ -591,6 +609,19 @@ async function createMaze(wallData) {
         // Black walls for entire wall style
         defaultWallMaterial = new THREE.MeshLambertMaterial({ 
             color: 0x000000
+        });
+    } else if (textureStyle === 'backrooms') {
+        // Backrooms wallpaper texture - stretched, not tiled
+        const backroomsTexture = textureLoader.load(
+            'https://i.imgur.com/FzvYZWy.png',
+            function(texture) {
+                texture.wrapS = THREE.ClampToEdgeWrapping;
+                texture.wrapT = THREE.ClampToEdgeWrapping;
+                // No repeat - stretch to fit each wall segment
+            }
+        );
+        defaultWallMaterial = new THREE.MeshLambertMaterial({ 
+            map: backroomsTexture
         });
     } else {
         // Load brick texture for W95 style
@@ -2955,6 +2986,7 @@ function updateStatsDisplay() {
                 <select id="texture-style-select" style="width: 100%; padding: 3px; background: #333; color: #fff; border: 1px solid #666;">
                     <option value="w95" ${textureStyle === 'w95' ? 'selected' : ''}>W95</option>
                     <option value="entirewall" ${textureStyle === 'entirewall' ? 'selected' : ''}>Entire Wall</option>
+                    <option value="backrooms" ${textureStyle === 'backrooms' ? 'selected' : ''}>Backrooms</option>
                 </select>
             </div>
             <hr style="border-color: #666; margin: 10px 0;">
