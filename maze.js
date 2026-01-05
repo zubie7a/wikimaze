@@ -44,6 +44,7 @@ let isTransitioningRoom = false; // Prevent concurrent door crossings in openspa
 let mazeGeneration = 0; // Counter to invalidate stale loading operations
 let globalAmbientLight = null; // Reference to ambient light for updating
 let globalDirectionalLight = null; // Reference to directional light for updating
+let flickeringLights = []; // Array of {light, lamp, baseIntensity} for flickering effect
 
 
 // Player position and rotation
@@ -465,14 +466,24 @@ async function createMaze(wallData) {
     
     // Add ceiling lamps for backrooms style
     if (textureStyle === 'backrooms') {
-        const lampWidth = 0.8;
-        const lampLength = 1.6;
+        // Clear previous flickering lights
+        flickeringLights = [];
+        
+        const lampSize = 0.5; // Smaller, squarer lamps
         const lampHeight = 0.05;
         const lampY = WALL_HEIGHT - 0.52; // Just below ceiling
         
-        // Emissive material for the lamp panels (glowing)
-        const lampMaterial = new THREE.MeshBasicMaterial({ 
+        // Materials for different lamp states
+        const lampOnMaterial = new THREE.MeshBasicMaterial({ 
             color: 0xFFFAE6, // Warm fluorescent white
+            side: THREE.DoubleSide
+        });
+        const lampOffMaterial = new THREE.MeshBasicMaterial({ 
+            color: 0x3A3A3A, // Dark gray (off lamp)
+            side: THREE.DoubleSide
+        });
+        const lampFlickerMaterial = new THREE.MeshBasicMaterial({ 
+            color: 0xFFFAE6, // Same as on, will be toggled
             side: THREE.DoubleSide
         });
         
@@ -482,16 +493,43 @@ async function createMaze(wallData) {
         
         for (let x = -halfMaze + lampSpacing / 2; x < halfMaze; x += lampSpacing) {
             for (let z = -halfMaze + lampSpacing / 2; z < halfMaze; z += lampSpacing) {
-                // Create lamp fixture geometry
-                const lampGeometry = new THREE.BoxGeometry(lampWidth, lampHeight, lampLength);
+                // Randomly determine lamp state: 70% on, 15% off, 15% flickering
+                const rand = Math.random();
+                const isOff = rand < 0.15;
+                const isFlickering = rand >= 0.15 && rand < 0.30;
+                
+                // Create lamp fixture geometry (square)
+                const lampGeometry = new THREE.BoxGeometry(lampSize, lampHeight, lampSize);
+                let lampMaterial;
+                if (isOff) {
+                    lampMaterial = lampOffMaterial;
+                } else if (isFlickering) {
+                    lampMaterial = lampFlickerMaterial.clone(); // Clone so each can flicker independently
+                } else {
+                    lampMaterial = lampOnMaterial;
+                }
+                
                 const lamp = new THREE.Mesh(lampGeometry, lampMaterial);
                 lamp.position.set(x, lampY, z);
                 group.add(lamp);
                 
-                // Add a point light below each lamp
-                const lampLight = new THREE.PointLight(0xFFF5E0, 0.8, CELL_SIZE * 2.5, 1.5);
-                lampLight.position.set(x, lampY - 0.1, z);
-                group.add(lampLight);
+                // Add a point light below each lamp (only if not off)
+                if (!isOff) {
+                    const lampLight = new THREE.PointLight(0xFFF5E0, 0.8, CELL_SIZE * 2.5, 1.5);
+                    lampLight.position.set(x, lampY - 0.1, z);
+                    group.add(lampLight);
+                    
+                    // Track flickering lights for animation
+                    if (isFlickering) {
+                        flickeringLights.push({
+                            light: lampLight,
+                            lamp: lamp,
+                            baseIntensity: 0.8,
+                            flickerSpeed: 0.5 + Math.random() * 2, // Random flicker speed
+                            flickerPhase: Math.random() * Math.PI * 2 // Random starting phase
+                        });
+                    }
+                }
             }
         }
     }
@@ -2736,11 +2774,44 @@ function drawMinimap() {
     minimapCtx.stroke();
 }
 
+// Update flickering lights for backrooms effect
+function updateFlickeringLights() {
+    if (textureStyle !== 'backrooms' || flickeringLights.length === 0) return;
+    
+    const time = performance.now() / 1000; // Time in seconds
+    
+    for (const flicker of flickeringLights) {
+        // Create erratic flickering using multiple sine waves
+        const flicker1 = Math.sin(time * flicker.flickerSpeed * 10 + flicker.flickerPhase);
+        const flicker2 = Math.sin(time * flicker.flickerSpeed * 23 + flicker.flickerPhase * 1.5);
+        const flicker3 = Math.sin(time * flicker.flickerSpeed * 7 + flicker.flickerPhase * 0.7);
+        
+        // Combine for erratic effect, occasionally going very dim or off
+        let intensity = flicker.baseIntensity;
+        const combined = (flicker1 + flicker2 + flicker3) / 3;
+        
+        if (combined < -0.5) {
+            // Occasionally go very dim or off
+            intensity = Math.random() < 0.3 ? 0 : flicker.baseIntensity * 0.2;
+            flicker.lamp.material.color.setHex(0x4A4A3A); // Dim color
+        } else if (combined < 0) {
+            intensity = flicker.baseIntensity * (0.5 + Math.random() * 0.3);
+            flicker.lamp.material.color.setHex(0xCCC8B0); // Slightly dim
+        } else {
+            intensity = flicker.baseIntensity * (0.8 + Math.random() * 0.2);
+            flicker.lamp.material.color.setHex(0xFFFAE6); // Full brightness
+        }
+        
+        flicker.light.intensity = intensity;
+    }
+}
+
 // Animation loop
 function animate() {
     requestAnimationFrame(animate);
     updateMovement();
     updateAlleyFog();
+    updateFlickeringLights();
     drawMinimap();
     if (statsVisible && statsDiv) {
         updateStatsDisplay();
