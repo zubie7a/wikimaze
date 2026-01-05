@@ -1647,11 +1647,38 @@ function updateMovement() {
                 let bestTarget = null;
                 let bestPath = [];
                 
+                // In open space mode, only target cells adjacent to boundary walls (edge cells)
+                const isEdgeCell = (x, z) => {
+                    return x === 0 || x === MAZE_SIZE - 1 || z === 0 || z === MAZE_SIZE - 1;
+                };
+                
                 while (attempts < 50 && !bestTarget) {
-                    const candidateTarget = {
-                        x: Math.floor(Math.random() * MAZE_SIZE),
-                        z: Math.floor(Math.random() * MAZE_SIZE)
-                    };
+                    let candidateTarget;
+                    
+                    if (sceneMode === 'openspace') {
+                        // Pick a random edge cell
+                        const edge = Math.floor(Math.random() * 4);
+                        switch (edge) {
+                            case 0: // Top edge (z = 0)
+                                candidateTarget = { x: Math.floor(Math.random() * MAZE_SIZE), z: 0 };
+                                break;
+                            case 1: // Bottom edge (z = MAZE_SIZE - 1)
+                                candidateTarget = { x: Math.floor(Math.random() * MAZE_SIZE), z: MAZE_SIZE - 1 };
+                                break;
+                            case 2: // Left edge (x = 0)
+                                candidateTarget = { x: 0, z: Math.floor(Math.random() * MAZE_SIZE) };
+                                break;
+                            case 3: // Right edge (x = MAZE_SIZE - 1)
+                                candidateTarget = { x: MAZE_SIZE - 1, z: Math.floor(Math.random() * MAZE_SIZE) };
+                                break;
+                        }
+                    } else {
+                        // Normal maze mode - pick any cell
+                        candidateTarget = {
+                            x: Math.floor(Math.random() * MAZE_SIZE),
+                            z: Math.floor(Math.random() * MAZE_SIZE)
+                        };
+                    }
                     
                     // Skip if same as current cell
                     if (candidateTarget.x === currentCell.x && candidateTarget.z === currentCell.z) {
