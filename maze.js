@@ -188,6 +188,37 @@ function generateMaze(size) {
         }
     }
     
+    // If in alley mode, create a single-cell wide endless corridor
+    if (sceneMode === 'alley') {
+        // Reset all walls first
+        for (let y = 0; y <= size; y++) {
+            for (let x = 0; x < size; x++) {
+                horizontalWalls[y][x] = false;
+            }
+        }
+        for (let y = 0; y < size; y++) {
+            for (let x = 0; x <= size; x++) {
+                verticalWalls[y][x] = false;
+            }
+        }
+        
+        // Create a single alley in the middle row (z = size/2)
+        const alleyZ = Math.floor(size / 2);
+        
+        // Add walls on north side of alley (horizontal wall at alleyZ)
+        for (let x = 0; x < size; x++) {
+            horizontalWalls[alleyZ][x] = true;
+        }
+        
+        // Add walls on south side of alley (horizontal wall at alleyZ + 1)
+        for (let x = 0; x < size; x++) {
+            horizontalWalls[alleyZ + 1][x] = true;
+        }
+        
+        // Remove walls at the ends to allow wrapping (no east/west boundaries)
+        // The vertical walls at x=0 and x=size are already false
+    }
+    
     return { horizontalWalls, verticalWalls };
 }
 
@@ -784,7 +815,14 @@ async function createMaze(wallData) {
     // Use BFS from initial position to order wall loading
     (async () => {
         // BFS to get cells in exploration order
-        const startCell = { x: 0, z: 0 };
+        // Start position depends on scene mode
+        let startCell;
+        if (sceneMode === 'alley') {
+            const alleyZ = Math.floor(MAZE_SIZE / 2);
+            startCell = { x: 0, z: alleyZ };
+        } else {
+            startCell = { x: 0, z: 0 };
+        }
         const visitedBFS = new Set();
         const queue = [startCell];
         const cellOrder = [];
@@ -856,6 +894,18 @@ async function createMaze(wallData) {
             }
         }
         
+        // For alley mode, ensure all walls are included (BFS might miss some due to cell ordering)
+        // Add any walls from wallMeshMap that weren't found through BFS
+        if (sceneMode === 'alley') {
+            for (const [wallKey, wall] of wallMeshMap) {
+                if (!processedWalls.has(wallKey)) {
+                    const [type] = wallKey.split('-');
+                    processedWalls.add(wallKey);
+                    wallsInOrder.push({ wallKey, type });
+                }
+            }
+        }
+        
         // Calculate total images to load and set loading state
         isLoadingImages = true;
         loadedImagesCount = 0;
@@ -893,15 +943,27 @@ async function createMaze(wallData) {
             const x = parseInt(xStr);
             const y = parseInt(yStr);
             
-            // Determine if this is an edge wall
-            const isEdgeWall = 
+            // Determine if this is an edge wall (only render on one side)
+            const alleyZ = Math.floor(MAZE_SIZE / 2);
+            let isEdgeWall = 
                 (wallType === 'horizontal' && (y === 0 || y === MAZE_SIZE)) ||
                 (wallType === 'vertical' && (x === 0 || x === MAZE_SIZE));
             
-            if (isEdgeWall) {
-                // Edge wall: only place image on the side facing the maze
+            // In alley mode, the alley walls are also edge walls (only face inward)
+            let isAlleyWall = false;
+            if (sceneMode === 'alley' && wallType === 'horizontal') {
+                if (y === alleyZ || y === alleyZ + 1) {
+                    isAlleyWall = true;
+                }
+            }
+            
+            if (isEdgeWall || isAlleyWall) {
+                // Edge wall: only place image on the side facing the maze/alley
                 let side;
-                if (wallType === 'horizontal') {
+                if (isAlleyWall) {
+                    // Alley walls: y=alleyZ faces south (into alley), y=alleyZ+1 faces north (into alley)
+                    side = y === alleyZ ? 'positive' : 'negative';
+                } else if (wallType === 'horizontal') {
                     // Horizontal wall: y=0 is top boundary (faces south/positive Z), y=MAZE_SIZE is bottom boundary (faces north/negative Z)
                     side = y === 0 ? 'positive' : 'negative';
                 } else {
@@ -995,10 +1057,18 @@ async function regenerateScene() {
     scene.add(currentMazeGroup);
     
     // Reset player position
-    playerPosition.x = (-MAZE_SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
-    playerPosition.z = (-MAZE_SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
+    if (sceneMode === 'alley') {
+        // Start in the middle of the alley
+        const alleyZ = Math.floor(MAZE_SIZE / 2);
+        playerPosition.x = 0; // Center of the alley (x = 0 in world coords)
+        playerPosition.z = (alleyZ - MAZE_SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
+        playerRotation = Math.PI / 2; // Face east (along the alley)
+    } else {
+        playerPosition.x = (-MAZE_SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
+        playerPosition.z = (-MAZE_SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
+        playerRotation = 0;
+    }
     camera.position.set(playerPosition.x, 1.2, playerPosition.z);
-    playerRotation = 0;
     
     // Reset auto mode state
     targetCell = null;
@@ -1045,9 +1115,18 @@ function init() {
         scene.add(maze3D);
     });
     
-    // Set initial player position (at entrance - top-left corner)
-    playerPosition.x = (-MAZE_SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
-    playerPosition.z = (-MAZE_SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
+    // Set initial player position
+    if (sceneMode === 'alley') {
+        // Start in the middle of the alley
+        const alleyZ = Math.floor(MAZE_SIZE / 2);
+        playerPosition.x = 0;
+        playerPosition.z = (alleyZ - MAZE_SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
+        playerRotation = Math.PI / 2; // Face east
+    } else {
+        // Default: top-left corner
+        playerPosition.x = (-MAZE_SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
+        playerPosition.z = (-MAZE_SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
+    }
     camera.position.set(playerPosition.x, 1.2, playerPosition.z);
     
     // Renderer
@@ -1453,9 +1532,18 @@ function isValidPosition(x, z) {
     
     // Check boundaries
     const halfSize = (MAZE_SIZE * CELL_SIZE) / 2;
-    if (x < -halfSize + checkDist || x > halfSize - checkDist || 
-        z < -halfSize + checkDist || z > halfSize - checkDist) {
-        return false;
+    
+    // In alley mode, allow crossing X boundaries (for wrapping)
+    if (sceneMode === 'alley') {
+        // Only check Z boundaries
+        if (z < -halfSize + checkDist || z > halfSize - checkDist) {
+            return false;
+        }
+    } else {
+        if (x < -halfSize + checkDist || x > halfSize - checkDist || 
+            z < -halfSize + checkDist || z > halfSize - checkDist) {
+            return false;
+        }
     }
     
     if (!mazeData) return true;
@@ -1714,6 +1802,13 @@ function updateMovement() {
                             case 2: return { x: 0, z: Math.floor(Math.random() * MAZE_SIZE) };
                             case 3: return { x: MAZE_SIZE - 1, z: Math.floor(Math.random() * MAZE_SIZE) };
                         }
+                    } else if (sceneMode === 'alley') {
+                        // Only cells in the alley row
+                        const alleyZ = Math.floor(MAZE_SIZE / 2);
+                        return {
+                            x: Math.floor(Math.random() * MAZE_SIZE),
+                            z: alleyZ
+                        };
                     } else {
                         return {
                             x: Math.floor(Math.random() * MAZE_SIZE),
@@ -1723,9 +1818,14 @@ function updateMovement() {
                 };
                 
                 // Calculate total valid cells for this scene mode
-                const totalValidCells = sceneMode === 'openspace' 
-                    ? (MAZE_SIZE * 4 - 4) // Edge cells (perimeter minus corners counted twice)
-                    : (MAZE_SIZE * MAZE_SIZE);
+                let totalValidCells;
+                if (sceneMode === 'openspace') {
+                    totalValidCells = MAZE_SIZE * 4 - 4; // Edge cells (perimeter minus corners counted twice)
+                } else if (sceneMode === 'alley') {
+                    totalValidCells = MAZE_SIZE; // Only cells in the alley row
+                } else {
+                    totalValidCells = MAZE_SIZE * MAZE_SIZE;
+                }
                 
                 // Check if all valid cells have been visited
                 const allVisited = visitedCells.size >= totalValidCells;
@@ -1918,6 +2018,19 @@ function updateMovement() {
                             playerPosition.x = newX;
                             playerPosition.z = newZ;
                         }
+                        
+                        // Wrap around for endless alley mode
+                        if (sceneMode === 'alley') {
+                            const minX = (-MAZE_SIZE / 2) * CELL_SIZE;
+                            const maxX = (MAZE_SIZE / 2) * CELL_SIZE;
+                            const alleyWidth = maxX - minX;
+                            
+                            if (playerPosition.x < minX) {
+                                playerPosition.x += alleyWidth;
+                            } else if (playerPosition.x > maxX) {
+                                playerPosition.x -= alleyWidth;
+                            }
+                        }
                     }
                 }
             }
@@ -1962,6 +2075,19 @@ function updateMovement() {
     }
     if (isValidPosition(playerPosition.x, newZ)) {
         playerPosition.z = newZ;
+    }
+    
+    // Wrap around for endless alley mode
+    if (sceneMode === 'alley') {
+        const minX = (-MAZE_SIZE / 2) * CELL_SIZE;
+        const maxX = (MAZE_SIZE / 2) * CELL_SIZE;
+        const alleyWidth = maxX - minX;
+        
+        if (playerPosition.x < minX) {
+            playerPosition.x += alleyWidth;
+        } else if (playerPosition.x > maxX) {
+            playerPosition.x -= alleyWidth;
+        }
     }
     
     // Update camera
@@ -2196,13 +2322,18 @@ async function reloadAllPaintings() {
     // Calculate total images to load (edge walls = 1 image, internal walls = 2 images)
     loadedImagesCount = 0;
     totalImagesToLoad = 0;
+    const alleyZ = Math.floor(MAZE_SIZE / 2);
     for (const { wallKey } of wallsWithDistance) {
         const [wallType, xStr, yStr] = wallKey.split('-');
         const x = parseInt(xStr);
         const y = parseInt(yStr);
-        const isEdgeWall = 
+        let isEdgeWall = 
             (wallType === 'horizontal' && (y === 0 || y === MAZE_SIZE)) ||
             (wallType === 'vertical' && (x === 0 || x === MAZE_SIZE));
+        // In alley mode, alley walls are also edge walls
+        if (sceneMode === 'alley' && wallType === 'horizontal' && (y === alleyZ || y === alleyZ + 1)) {
+            isEdgeWall = true;
+        }
         totalImagesToLoad += isEdgeWall ? 1 : 2;
     }
     
@@ -2226,13 +2357,22 @@ async function reloadAllPaintings() {
         const x = parseInt(xStr);
         const y = parseInt(yStr);
         
-        const isEdgeWall = 
+        let isEdgeWall = 
             (wallType === 'horizontal' && (y === 0 || y === MAZE_SIZE)) ||
             (wallType === 'vertical' && (x === 0 || x === MAZE_SIZE));
         
-        if (isEdgeWall) {
+        // In alley mode, alley walls are also edge walls
+        let isAlleyWall = false;
+        if (sceneMode === 'alley' && wallType === 'horizontal' && (y === alleyZ || y === alleyZ + 1)) {
+            isAlleyWall = true;
+        }
+        
+        if (isEdgeWall || isAlleyWall) {
             let side;
-            if (wallType === 'horizontal') {
+            if (isAlleyWall) {
+                // Alley walls: y=alleyZ faces south (into alley), y=alleyZ+1 faces north (into alley)
+                side = y === alleyZ ? 'positive' : 'negative';
+            } else if (wallType === 'horizontal') {
                 side = y === 0 ? 'positive' : 'negative';
             } else {
                 side = x === 0 ? 'positive' : 'negative';
@@ -2292,6 +2432,7 @@ function updateStatsDisplay() {
                 <select id="scene-mode-select" style="width: 100%; padding: 3px; background: #333; color: #fff; border: 1px solid #666;">
                     <option value="maze" ${sceneMode === 'maze' ? 'selected' : ''}>Maze</option>
                     <option value="openspace" ${sceneMode === 'openspace' ? 'selected' : ''}>Open Space</option>
+                    <option value="alley" ${sceneMode === 'alley' ? 'selected' : ''}>Endless Alley</option>
                 </select>
             </div>
             <hr style="border-color: #666; margin: 10px 0;">
