@@ -12,6 +12,7 @@ let mazeData = null; // Store maze for collision detection
 let minimapCanvas = null;
 let minimapCtx = null;
 let minimapVisible = true; // Minimap visibility state
+let collisionsEnabled = true; // Wall collision detection
 let statsDiv = null; // Stats display element
 let useRandomImages = true; // Whether to use random images or topic-based search
 let searchTopic = ''; // Topic to search for Wikipedia images
@@ -910,13 +911,18 @@ async function createMaze(wallData) {
         isLoadingImages = true;
         loadedImagesCount = 0;
         totalImagesToLoad = 0;
+        const alleyZForCount = Math.floor(MAZE_SIZE / 2);
         for (const { wallKey } of wallsInOrder) {
             const [wallType, xStr, yStr] = wallKey.split('-');
             const x = parseInt(xStr);
             const y = parseInt(yStr);
-            const isEdgeWall = 
+            let isEdgeWall = 
                 (wallType === 'horizontal' && (y === 0 || y === MAZE_SIZE)) ||
                 (wallType === 'vertical' && (x === 0 || x === MAZE_SIZE));
+            // In alley mode, alley walls are also edge walls (only one side)
+            if (sceneMode === 'alley' && wallType === 'horizontal' && (y === alleyZForCount || y === alleyZForCount + 1)) {
+                isEdgeWall = true;
+            }
             totalImagesToLoad += isEdgeWall ? 1 : 2;
         }
         
@@ -1527,6 +1533,9 @@ async function loadPaintingInCell(cellX, cellZ) {
 
 // Check if position is valid (not colliding with boundary walls)
 function isValidPosition(x, z) {
+    // If collisions are disabled, all positions are valid
+    if (!collisionsEnabled) return true;
+    
     const playerRadius = 0.4;
     const checkDist = playerRadius + WALL_THICKNESS / 2;
     
@@ -2442,9 +2451,13 @@ function updateStatsDisplay() {
                     <input type="checkbox" id="auto-mode-checkbox" ${autoMode ? 'checked' : ''}>
                     Auto movement
                 </label>
-                <label style="cursor: pointer; display: block;">
+                <label style="cursor: pointer; display: block; margin-bottom: 5px;">
                     <input type="checkbox" id="minimap-checkbox" ${minimapVisible ? 'checked' : ''}>
                     Show minimap
+                </label>
+                <label style="cursor: pointer; display: block;">
+                    <input type="checkbox" id="collisions-checkbox" ${collisionsEnabled ? 'checked' : ''}>
+                    Wall collisions
                 </label>
             </div>
             <hr style="border-color: #666; margin: 10px 0;">
@@ -2477,6 +2490,7 @@ function updateStatsDisplay() {
         const sceneModeSelect = statsDiv.querySelector('#scene-mode-select');
         const autoModeCheckbox = statsDiv.querySelector('#auto-mode-checkbox');
         const minimapCheckbox = statsDiv.querySelector('#minimap-checkbox');
+        const collisionsCheckbox = statsDiv.querySelector('#collisions-checkbox');
         const randomCheckbox = statsDiv.querySelector('#random-images-checkbox');
         const topicControls = statsDiv.querySelector('#topic-controls');
         const topicInput = statsDiv.querySelector('#topic-input');
@@ -2519,6 +2533,10 @@ function updateStatsDisplay() {
             if (minimapCanvas) {
                 minimapCanvas.style.display = minimapVisible ? 'block' : 'none';
             }
+        });
+        
+        collisionsCheckbox.addEventListener('change', (e) => {
+            collisionsEnabled = e.target.checked;
         });
         
         randomCheckbox.addEventListener('change', (e) => {
