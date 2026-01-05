@@ -20,6 +20,7 @@ let loadedImagesCount = 0; // Number of images loaded so far
 let totalImagesToLoad = 0; // Total number of images to load
 let cancelLoading = false; // Flag to cancel current loading operation
 let statsVisible = false; // Stats visibility state
+let sceneMode = 'maze'; // 'maze' or 'openspace'
 let wikipediaWalls = new Set(); // Track which walls have Wikipedia textures (format: "type-x-y")
 let globalWallMeshMap = null; // Global reference to wall mesh map for loading paintings on demand
 let globalCreateFramedPicture = null; // Global reference to createFramedPicture function
@@ -164,6 +165,22 @@ function generateMaze(size) {
         for (let x = 1; x < size; x++) {
             // Remove some vertical walls (except boundaries)
             if (Math.random() < openSpaceChance) {
+                verticalWalls[y][x] = false;
+            }
+        }
+    }
+    
+    // If in open space mode, remove ALL internal walls
+    if (sceneMode === 'openspace') {
+        // Remove all internal horizontal walls (keep boundaries at y=0 and y=size)
+        for (let y = 1; y < size; y++) {
+            for (let x = 0; x < size; x++) {
+                horizontalWalls[y][x] = false;
+            }
+        }
+        // Remove all internal vertical walls (keep boundaries at x=0 and x=size)
+        for (let y = 0; y < size; y++) {
+            for (let x = 1; x < size; x++) {
                 verticalWalls[y][x] = false;
             }
         }
@@ -863,6 +880,66 @@ async function createMaze(wallData) {
     return group;
 }
 
+// Global reference to the current maze group for scene regeneration
+let currentMazeGroup = null;
+
+// Regenerate the scene (maze or open space)
+async function regenerateScene() {
+    console.log('Regenerating scene with mode:', sceneMode);
+    
+    // Cancel any ongoing loading
+    cancelLoading = true;
+    
+    // Remove old maze from scene
+    if (currentMazeGroup && scene) {
+        scene.remove(currentMazeGroup);
+        // Dispose of old geometries and materials
+        currentMazeGroup.traverse((child) => {
+            if (child.geometry) child.geometry.dispose();
+            if (child.material) {
+                if (Array.isArray(child.material)) {
+                    child.material.forEach(m => m.dispose());
+                } else {
+                    child.material.dispose();
+                }
+            }
+        });
+    }
+    
+    // Clear painting tracking
+    wikipediaWalls.clear();
+    paintingPositions.clear();
+    
+    // Reset topic search cache
+    topicSearchResults = [];
+    topicSearchIndex = 0;
+    topicResultsFetched = false;
+    
+    // Generate and add new maze
+    mazeData = generateMaze(MAZE_SIZE);
+    currentMazeGroup = await createMaze(mazeData);
+    scene.add(currentMazeGroup);
+    
+    // Reset player position
+    playerPosition.x = (-MAZE_SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
+    playerPosition.z = (-MAZE_SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
+    camera.position.set(playerPosition.x, 1.2, playerPosition.z);
+    playerRotation = 0;
+    
+    // Reset auto mode state
+    targetCell = null;
+    navigationPath = [];
+    currentPathIndex = 0;
+    isViewingPainting = false;
+    viewingPaintingTimer = 0;
+    viewingPhase = 0;
+    paintingLookDirection = null;
+    originalDirection = null;
+    currentPitch = 0;
+    
+    console.log('Scene regenerated');
+}
+
 // Initialize the scene
 function init() {
     // Scene
@@ -889,6 +966,7 @@ function init() {
     // Generate and add maze
     mazeData = generateMaze(MAZE_SIZE);
     createMaze(mazeData).then(maze3D => {
+        currentMazeGroup = maze3D;
         scene.add(maze3D);
     });
     
@@ -2042,6 +2120,14 @@ function updateStatsDisplay() {
             </div>
             <div id="stats-content"></div>
             <hr style="border-color: #666; margin: 10px 0;">
+            <div style="font-weight: bold; margin-bottom: 5px;">=== Scene ===</div>
+            <div style="margin-bottom: 8px;">
+                <select id="scene-mode-select" style="width: 100%; padding: 3px; background: #333; color: #fff; border: 1px solid #666;">
+                    <option value="maze" ${sceneMode === 'maze' ? 'selected' : ''}>Maze</option>
+                    <option value="openspace" ${sceneMode === 'openspace' ? 'selected' : ''}>Open Space</option>
+                </select>
+            </div>
+            <hr style="border-color: #666; margin: 10px 0;">
             <div style="font-weight: bold; margin-bottom: 5px;">=== Options ===</div>
             <div style="margin-bottom: 8px;">
                 <label style="cursor: pointer; display: block; margin-bottom: 5px;">
@@ -2080,6 +2166,7 @@ function updateStatsDisplay() {
         
         // Attach event handlers
         const closeBtn = statsDiv.querySelector('#close-menu-btn');
+        const sceneModeSelect = statsDiv.querySelector('#scene-mode-select');
         const autoModeCheckbox = statsDiv.querySelector('#auto-mode-checkbox');
         const minimapCheckbox = statsDiv.querySelector('#minimap-checkbox');
         const randomCheckbox = statsDiv.querySelector('#random-images-checkbox');
@@ -2092,6 +2179,11 @@ function updateStatsDisplay() {
             statsDiv.style.display = 'none';
             const menuToggle = document.getElementById('menu-toggle');
             if (menuToggle) menuToggle.style.display = 'block';
+        });
+        
+        sceneModeSelect.addEventListener('change', (e) => {
+            sceneMode = e.target.value;
+            regenerateScene();
         });
         
         autoModeCheckbox.addEventListener('change', (e) => {
