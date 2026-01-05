@@ -16,6 +16,9 @@ let statsDiv = null; // Stats display element
 let useRandomImages = true; // Whether to use random images or topic-based search
 let searchTopic = ''; // Topic to search for Wikipedia images
 let isLoadingImages = false; // Whether images are currently being loaded
+let loadedImagesCount = 0; // Number of images loaded so far
+let totalImagesToLoad = 0; // Total number of images to load
+let cancelLoading = false; // Flag to cancel current loading operation
 let statsVisible = false; // Stats visibility state
 let wikipediaWalls = new Set(); // Track which walls have Wikipedia textures (format: "type-x-y")
 let globalWallMeshMap = null; // Global reference to wall mesh map for loading paintings on demand
@@ -769,8 +772,29 @@ async function createMaze(wallData) {
         // Sort by distance (closest first)
         wallsWithDistance.sort((a, b) => a.distance - b.distance);
         
+        // Calculate total images to load and set loading state
+        isLoadingImages = true;
+        loadedImagesCount = 0;
+        totalImagesToLoad = 0;
+        for (const { wallKey } of wallsWithDistance) {
+            const [wallType, xStr, yStr] = wallKey.split('-');
+            const x = parseInt(xStr);
+            const y = parseInt(yStr);
+            const isEdgeWall = 
+                (wallType === 'horizontal' && (y === 0 || y === MAZE_SIZE)) ||
+                (wallType === 'vertical' && (x === 0 || x === MAZE_SIZE));
+            totalImagesToLoad += isEdgeWall ? 1 : 2;
+        }
+        
         // Load Wikipedia images in order of distance from player
         for (const { wallKey, type } of wallsWithDistance) {
+            // Check for cancellation
+            if (cancelLoading) {
+                console.log('Initial loading cancelled');
+                isLoadingImages = false;
+                return;
+            }
+            
             // Skip if already loaded (by on-demand loader)
             if (wikipediaWalls.has(wallKey)) continue;
             
@@ -802,23 +826,29 @@ async function createMaze(wallData) {
                 }
                 
                 const result = await getWikipediaImage();
+                if (cancelLoading) { isLoadingImages = false; return; }
                 if (result && result.imageUrl) {
                     await createFramedPicture(result.imageUrl, wall, type, side, result.title, wallKey);
                 } else {
                     // Failed - unreserve
                     wikipediaWalls.delete(wallKey);
                 }
+                loadedImagesCount++;
             } else {
                 // Internal wall: place images on both sides
                 const result1 = await getWikipediaImage();
-                const result2 = await getWikipediaImage();
-                
+                if (cancelLoading) { isLoadingImages = false; return; }
                 if (result1 && result1.imageUrl) {
                     await createFramedPicture(result1.imageUrl, wall, type, 'positive', result1.title, wallKey);
                 }
+                loadedImagesCount++;
+                
+                const result2 = await getWikipediaImage();
+                if (cancelLoading) { isLoadingImages = false; return; }
                 if (result2 && result2.imageUrl) {
                     await createFramedPicture(result2.imageUrl, wall, type, 'negative', result2.title, wallKey);
                 }
+                loadedImagesCount++;
                 
                 if (!(result1 && result1.imageUrl) && !(result2 && result2.imageUrl)) {
                     // Both failed - unreserve
@@ -826,6 +856,8 @@ async function createMaze(wallData) {
                 }
             }
         }
+        
+        isLoadingImages = false;
     })();
     
     return group;
@@ -1865,12 +1897,19 @@ function clearAllPaintings() {
 
 // Reload all paintings with current settings
 async function reloadAllPaintings() {
+    console.log('reloadAllPaintings called, isLoadingImages:', isLoadingImages);
+    
+    // If already loading, signal cancellation and wait a bit
     if (isLoadingImages) {
-        console.log('Already loading images, please wait...');
-        return;
+        console.log('Cancelling current loading...');
+        cancelLoading = true;
+        // Wait for current operation to notice the cancellation
+        await new Promise(resolve => setTimeout(resolve, 200));
     }
     
+    console.log('Starting new load...');
     isLoadingImages = true;
+    cancelLoading = false;
     
     // Reset topic search cache
     topicSearchResults = [];
@@ -1909,8 +1948,28 @@ async function reloadAllPaintings() {
     
     wallsWithDistance.sort((a, b) => a.distance - b.distance);
     
+    // Calculate total images to load (edge walls = 1 image, internal walls = 2 images)
+    loadedImagesCount = 0;
+    totalImagesToLoad = 0;
+    for (const { wallKey } of wallsWithDistance) {
+        const [wallType, xStr, yStr] = wallKey.split('-');
+        const x = parseInt(xStr);
+        const y = parseInt(yStr);
+        const isEdgeWall = 
+            (wallType === 'horizontal' && (y === 0 || y === MAZE_SIZE)) ||
+            (wallType === 'vertical' && (x === 0 || x === MAZE_SIZE));
+        totalImagesToLoad += isEdgeWall ? 1 : 2;
+    }
+    
     // Load images
     for (const { wallKey, type } of wallsWithDistance) {
+        // Check for cancellation
+        if (cancelLoading) {
+            console.log('Loading cancelled');
+            isLoadingImages = false;
+            return;
+        }
+        
         if (wikipediaWalls.has(wallKey)) continue;
         
         const wall = globalWallMeshMap.get(wallKey);
@@ -1935,21 +1994,27 @@ async function reloadAllPaintings() {
             }
             
             const result = await getWikipediaImage();
+            if (cancelLoading) { isLoadingImages = false; return; }
             if (result && result.imageUrl) {
                 await globalCreateFramedPicture(result.imageUrl, wall, type, side, result.title, wallKey);
             } else {
                 wikipediaWalls.delete(wallKey);
             }
+            loadedImagesCount++;
         } else {
             const result1 = await getWikipediaImage();
-            const result2 = await getWikipediaImage();
-            
+            if (cancelLoading) { isLoadingImages = false; return; }
             if (result1 && result1.imageUrl) {
                 await globalCreateFramedPicture(result1.imageUrl, wall, type, 'positive', result1.title, wallKey);
             }
+            loadedImagesCount++;
+            
+            const result2 = await getWikipediaImage();
+            if (cancelLoading) { isLoadingImages = false; return; }
             if (result2 && result2.imageUrl) {
                 await globalCreateFramedPicture(result2.imageUrl, wall, type, 'negative', result2.title, wallKey);
             }
+            loadedImagesCount++;
             
             if (!(result1 && result1.imageUrl) && !(result2 && result2.imageUrl)) {
                 wikipediaWalls.delete(wallKey);
@@ -1990,6 +2055,10 @@ function updateStatsDisplay() {
             </div>
             <hr style="border-color: #666; margin: 10px 0;">
             <div style="font-weight: bold; margin-bottom: 5px;">=== Images ===</div>
+            <div id="loading-status" style="margin-bottom: 8px; display: none;"></div>
+            <div style="margin-bottom: 8px;">
+                <button id="reload-images-btn" style="padding: 5px 10px; background: #555; color: #fff; border: 1px solid #888; cursor: pointer; font-size: 12px; width: 100%;">Reload images</button>
+            </div>
             <div style="margin-bottom: 8px;">
                 <label style="cursor: pointer;">
                     <input type="checkbox" id="random-images-checkbox" ${useRandomImages ? 'checked' : ''}>
@@ -2002,9 +2071,8 @@ function updateStatsDisplay() {
                     <input type="text" id="topic-input" value="${searchTopic}" 
                            style="flex: 1; padding: 3px; background: #333; color: #fff; border: 1px solid #666;">
                     <button id="load-topic-btn" 
-                            style="padding: 3px 8px; background: #4a4; color: #fff; border: none; cursor: pointer;"
-                            ${isLoadingImages ? 'disabled' : ''}>
-                        ${isLoadingImages ? 'Loading...' : 'Load'}
+                            style="padding: 3px 8px; background: #4a4; color: #fff; border: none; cursor: pointer;">
+                        Load
                     </button>
                 </div>
             </div>
@@ -2055,6 +2123,10 @@ function updateStatsDisplay() {
         randomCheckbox.addEventListener('change', (e) => {
             useRandomImages = e.target.checked;
             topicControls.style.display = useRandomImages ? 'none' : 'block';
+            // Reload images when switching back to random mode
+            if (useRandomImages && !isLoadingImages) {
+                reloadAllPaintings();
+            }
         });
         
         topicInput.addEventListener('input', (e) => {
@@ -2072,10 +2144,16 @@ function updateStatsDisplay() {
             }
         });
         
+        // Reload images button handler
+        const reloadImagesBtn = statsDiv.querySelector('#reload-images-btn');
+        reloadImagesBtn.addEventListener('click', () => {
+            console.log('Reload images button clicked');
+            reloadAllPaintings();
+        });
+        
         loadBtn.addEventListener('click', () => {
-            if (!isLoadingImages) {
-                reloadAllPaintings();
-            }
+            console.log('Load topic button clicked');
+            reloadAllPaintings();
         });
         
         statsContent = statsDiv.querySelector('#stats-content');
@@ -2086,8 +2164,25 @@ function updateStatsDisplay() {
         <div>Position: (${playerPosition.x.toFixed(1)}, ${playerPosition.z.toFixed(1)})</div>
         <div>Cell: (${currentCell.x}, ${currentCell.z})</div>
         <div>Target: ${targetCell ? `(${targetCell.x}, ${targetCell.z})` : '-'}</div>
-        <div>Loading: ${isLoadingImages ? 'Yes' : 'No'}</div>
     `;
+    
+    // Update loading status display
+    const loadingStatus = statsDiv.querySelector('#loading-status');
+    if (loadingStatus) {
+        if (isLoadingImages) {
+            loadingStatus.style.display = 'block';
+            loadingStatus.textContent = `Loading: ${loadedImagesCount}/${totalImagesToLoad}`;
+        } else {
+            loadingStatus.style.display = 'none';
+        }
+    }
+    
+    // Update reload button appearance
+    const reloadImagesBtn = statsDiv.querySelector('#reload-images-btn');
+    if (reloadImagesBtn) {
+        reloadImagesBtn.style.background = isLoadingImages ? '#833' : '#555';
+        reloadImagesBtn.textContent = isLoadingImages ? 'Cancel & Reload' : 'Reload images';
+    }
     
     // Update checkbox states
     const autoModeCheckbox = statsDiv.querySelector('#auto-mode-checkbox');
@@ -2100,12 +2195,6 @@ function updateStatsDisplay() {
         minimapCheckbox.checked = minimapVisible;
     }
     
-    // Update load button state
-    const loadBtn = statsDiv.querySelector('#load-topic-btn');
-    if (loadBtn) {
-        loadBtn.disabled = isLoadingImages;
-        loadBtn.textContent = isLoadingImages ? 'Loading...' : 'Load';
-    }
 }
 
 // Handle window resize
