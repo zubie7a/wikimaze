@@ -381,13 +381,14 @@ async function createMaze(wallData) {
         window.alleyWorldZ = alleyWorldZ;
         
         // Create gradient darkness at each end of the alley (fixed position)
-        const numEndLayers = 20;
-        const endZoneLength = CELL_SIZE * 3; // Last 3 cells get progressively darker
+        // Spread out layers for the outer zone
+        const numOuterLayers = 15;
+        const outerZoneLength = CELL_SIZE * 3; // 3 cells of gradual darkening
         
-        for (let i = 0; i < numEndLayers; i++) {
-            const t = i / (numEndLayers - 1); // 0 to 1
-            const distFromEnd = t * endZoneLength;
-            const opacity = 0.05 + (1 - t) * 0.15; // More opaque closer to the end
+        for (let i = 0; i < numOuterLayers; i++) {
+            const t = i / (numOuterLayers - 1); // 0 to 1
+            const distFromEnd = CELL_SIZE * 1.5 + t * outerZoneLength; // Start 1.5 cells from end
+            const opacity = 0.03 + (1 - t) * 0.08;
             
             const fogMaterial = new THREE.MeshBasicMaterial({
                 color: 0x000000,
@@ -397,7 +398,7 @@ async function createMaze(wallData) {
                 depthWrite: false
             });
             
-            // West end darkening
+            // West end
             const westDark = new THREE.Mesh(
                 new THREE.PlaneGeometry(CELL_SIZE * 2, WALL_HEIGHT + 2),
                 fogMaterial.clone()
@@ -406,7 +407,7 @@ async function createMaze(wallData) {
             westDark.position.set(-halfAlleyLength + distFromEnd, WALL_HEIGHT / 2 - 0.5, alleyWorldZ);
             group.add(westDark);
             
-            // East end darkening
+            // East end
             const eastDark = new THREE.Mesh(
                 new THREE.PlaneGeometry(CELL_SIZE * 2, WALL_HEIGHT + 2),
                 fogMaterial.clone()
@@ -414,6 +415,42 @@ async function createMaze(wallData) {
             eastDark.rotation.y = Math.PI / 2;
             eastDark.position.set(halfAlleyLength - distFromEnd, WALL_HEIGHT / 2 - 0.5, alleyWorldZ);
             group.add(eastDark);
+        }
+        
+        // Dense layers very close to the end (last 1.5 cells) - tightly packed
+        const numDenseLayers = 30;
+        const denseZoneLength = CELL_SIZE * 1.5;
+        
+        for (let i = 0; i < numDenseLayers; i++) {
+            const t = i / (numDenseLayers - 1); // 0 to 1
+            const distFromEnd = t * denseZoneLength;
+            const opacity = 0.08 + (1 - t) * 0.15; // Higher opacity near the very end
+            
+            const fogMaterial = new THREE.MeshBasicMaterial({
+                color: 0x000000,
+                transparent: true,
+                opacity: opacity,
+                side: THREE.DoubleSide,
+                depthWrite: false
+            });
+            
+            // West end dense fog
+            const westDense = new THREE.Mesh(
+                new THREE.PlaneGeometry(CELL_SIZE * 2, WALL_HEIGHT + 2),
+                fogMaterial.clone()
+            );
+            westDense.rotation.y = Math.PI / 2;
+            westDense.position.set(-halfAlleyLength + distFromEnd, WALL_HEIGHT / 2 - 0.5, alleyWorldZ);
+            group.add(westDense);
+            
+            // East end dense fog
+            const eastDense = new THREE.Mesh(
+                new THREE.PlaneGeometry(CELL_SIZE * 2, WALL_HEIGHT + 2),
+                fogMaterial.clone()
+            );
+            eastDense.rotation.y = Math.PI / 2;
+            eastDense.position.set(halfAlleyLength - distFromEnd, WALL_HEIGHT / 2 - 0.5, alleyWorldZ);
+            group.add(eastDense);
         }
     }
     
