@@ -1,6 +1,12 @@
 // Maze dimensions
 const MAZE_SIZE = 10;
+const OPENSPACE_SIZE = 11; // Open space uses 11x11 for center doors
 const CELL_SIZE = 2;
+
+// Get effective maze size based on scene mode
+function getEffectiveSize() {
+    return sceneMode === 'openspace' ? OPENSPACE_SIZE : MAZE_SIZE;
+}
 const WALL_HEIGHT = 3;
 const WALL_THICKNESS = 0.05; // Very thin flat walls
 const NUM_WIKIPEDIA_WALLS = 40; // Number of walls to have Wikipedia textures
@@ -188,6 +194,7 @@ function generateMaze(size) {
                 verticalWalls[y][x] = false;
             }
         }
+        // Note: Door walls are kept for visual but collision is handled separately in isValidPosition
     }
     
     // If in alley mode, create a single-cell wide endless corridor
@@ -381,11 +388,12 @@ async function getWikipediaImage() {
 async function createMaze(wallData) {
     const group = new THREE.Group();
     const { horizontalWalls, verticalWalls } = wallData;
+    const SIZE = getEffectiveSize(); // Use effective size for this scene
     
     // Create floor (brown)
     const floorGeometry = new THREE.PlaneGeometry(
-        MAZE_SIZE * CELL_SIZE,
-        MAZE_SIZE * CELL_SIZE
+        SIZE * CELL_SIZE,
+        SIZE * CELL_SIZE
     );
     const floorMaterial = new THREE.MeshLambertMaterial({ 
         color: 0x8B4513 // Brown
@@ -397,8 +405,8 @@ async function createMaze(wallData) {
     
     // Create ceiling (gray/rock)
     const ceilingGeometry = new THREE.PlaneGeometry(
-        MAZE_SIZE * CELL_SIZE,
-        MAZE_SIZE * CELL_SIZE
+        SIZE * CELL_SIZE,
+        SIZE * CELL_SIZE
     );
     const ceilingMaterial = new THREE.MeshLambertMaterial({ 
         color: 0x708090 // Slate gray
@@ -491,6 +499,62 @@ async function createMaze(wallData) {
         }
     }
     
+    // In openspace mode, create doors on each boundary wall
+    if (sceneMode === 'openspace') {
+        const halfSize = (SIZE * CELL_SIZE) / 2;
+        const doorWidth = CELL_SIZE * 0.6;
+        const doorHeight = WALL_HEIGHT * 0.85;
+        const doorY = doorHeight / 2 - 0.5;
+        
+        const doorMaterial = new THREE.MeshBasicMaterial({ 
+            color: 0x000000,
+            side: THREE.DoubleSide
+        });
+        
+        // Store door positions globally for crossing detection
+        window.openspaceDoors = {
+            north: { z: -halfSize, minX: -doorWidth/2, maxX: doorWidth/2 },
+            south: { z: halfSize, minX: -doorWidth/2, maxX: doorWidth/2 },
+            west: { x: -halfSize, minZ: -doorWidth/2, maxZ: doorWidth/2 },
+            east: { x: halfSize, minZ: -doorWidth/2, maxZ: doorWidth/2 }
+        };
+        
+        // North door (z = -halfSize, horizontal wall at y=0)
+        const northDoor = new THREE.Mesh(
+            new THREE.PlaneGeometry(doorWidth, doorHeight),
+            doorMaterial.clone()
+        );
+        northDoor.position.set(0, doorY, -halfSize + WALL_THICKNESS/2 + 0.01);
+        group.add(northDoor);
+        
+        // South door (z = halfSize, horizontal wall at y=MAZE_SIZE)
+        const southDoor = new THREE.Mesh(
+            new THREE.PlaneGeometry(doorWidth, doorHeight),
+            doorMaterial.clone()
+        );
+        southDoor.position.set(0, doorY, halfSize - WALL_THICKNESS/2 - 0.01);
+        southDoor.rotation.y = Math.PI;
+        group.add(southDoor);
+        
+        // West door (x = -halfSize, vertical wall at x=0)
+        const westDoor = new THREE.Mesh(
+            new THREE.PlaneGeometry(doorWidth, doorHeight),
+            doorMaterial.clone()
+        );
+        westDoor.rotation.y = Math.PI / 2;
+        westDoor.position.set(-halfSize + WALL_THICKNESS/2 + 0.01, doorY, 0);
+        group.add(westDoor);
+        
+        // East door (x = halfSize, vertical wall at x=MAZE_SIZE)
+        const eastDoor = new THREE.Mesh(
+            new THREE.PlaneGeometry(doorWidth, doorHeight),
+            doorMaterial.clone()
+        );
+        eastDoor.rotation.y = -Math.PI / 2;
+        eastDoor.position.set(halfSize - WALL_THICKNESS/2 - 0.01, doorY, 0);
+        group.add(eastDoor);
+    }
+    
     // Texture loader for Wikipedia images
     const textureLoader = new THREE.TextureLoader();
     
@@ -512,16 +576,16 @@ async function createMaze(wallData) {
     // Collect all wall positions (only walls that exist after pruning)
     // This ensures we don't try to assign Wikipedia images to pruned walls
     const wallPositions = [];
-    for (let y = 0; y <= MAZE_SIZE; y++) {
-        for (let x = 0; x < MAZE_SIZE; x++) {
-            if (horizontalWalls[y][x]) {
+    for (let y = 0; y <= SIZE; y++) {
+        for (let x = 0; x < SIZE; x++) {
+            if (horizontalWalls[y] && horizontalWalls[y][x]) {
                 wallPositions.push({ type: 'horizontal', x, y });
             }
         }
     }
-    for (let y = 0; y < MAZE_SIZE; y++) {
-        for (let x = 0; x <= MAZE_SIZE; x++) {
-            if (verticalWalls[y][x]) {
+    for (let y = 0; y < SIZE; y++) {
+        for (let x = 0; x <= SIZE; x++) {
+            if (verticalWalls[y] && verticalWalls[y][x]) {
                 wallPositions.push({ type: 'vertical', x, y });
             }
         }
@@ -530,11 +594,28 @@ async function createMaze(wallData) {
     // Select walls for Wikipedia images
     const wikipediaWallKeys = new Set();
     
+    // Helper to check if a wall has a door (openspace mode only)
+    const isDoorWall = (type, x, y) => {
+        if (sceneMode !== 'openspace') return false;
+        const center = Math.floor(SIZE / 2);
+        // North door: horizontal at y=0, x=center
+        if (type === 'horizontal' && y === 0 && x === center) return true;
+        // South door: horizontal at y=SIZE, x=center
+        if (type === 'horizontal' && y === SIZE && x === center) return true;
+        // West door: vertical at x=0, y=center
+        if (type === 'vertical' && x === 0 && y === center) return true;
+        // East door: vertical at x=SIZE, y=center
+        if (type === 'vertical' && x === SIZE && y === center) return true;
+        return false;
+    };
+    
     if (FILL_ALL_WALLS_WITH_WIKIPEDIA) {
-        // Fill entire maze with Wikipedia walls
+        // Fill entire maze with Wikipedia walls (except door walls)
         for (const wallPos of wallPositions) {
-            const wallKey = `${wallPos.type}-${wallPos.x}-${wallPos.y}`;
-            wikipediaWallKeys.add(wallKey);
+            if (!isDoorWall(wallPos.type, wallPos.x, wallPos.y)) {
+                const wallKey = `${wallPos.type}-${wallPos.x}-${wallPos.y}`;
+                wikipediaWallKeys.add(wallKey);
+            }
         }
     } else {
         // Randomly select walls up to NUM_WIKIPEDIA_WALLS limit
@@ -546,8 +627,11 @@ async function createMaze(wallData) {
         
         for (const idx of wikipediaWallIndices) {
             const wallPos = wallPositions[idx];
-            const wallKey = `${wallPos.type}-${wallPos.x}-${wallPos.y}`;
-            wikipediaWallKeys.add(wallKey);
+            // Skip door walls
+            if (!isDoorWall(wallPos.type, wallPos.x, wallPos.y)) {
+                const wallKey = `${wallPos.type}-${wallPos.x}-${wallPos.y}`;
+                wikipediaWallKeys.add(wallKey);
+            }
         }
     }
     
@@ -556,9 +640,9 @@ async function createMaze(wallData) {
     globalWallMeshMap = wallMeshMap; // Store globally for on-demand loading
     
     // Create all horizontal walls with brick texture first
-    for (let y = 0; y <= MAZE_SIZE; y++) {
-        for (let x = 0; x < MAZE_SIZE; x++) {
-            if (horizontalWalls[y][x]) {
+    for (let y = 0; y <= SIZE; y++) {
+        for (let x = 0; x < SIZE; x++) {
+            if (horizontalWalls[y] && horizontalWalls[y][x]) {
                 const wallGeometry = new THREE.BoxGeometry(
                     CELL_SIZE,
                     WALL_HEIGHT,
@@ -567,9 +651,9 @@ async function createMaze(wallData) {
                 
                 const wall = new THREE.Mesh(wallGeometry, defaultWallMaterial);
                 wall.position.set(
-                    (x - MAZE_SIZE / 2) * CELL_SIZE + CELL_SIZE / 2,
+                    (x - SIZE / 2) * CELL_SIZE + CELL_SIZE / 2,
                     WALL_HEIGHT / 2 - 0.5,
-                    (y - MAZE_SIZE / 2) * CELL_SIZE
+                    (y - SIZE / 2) * CELL_SIZE
                 );
                 group.add(wall);
                 
@@ -583,9 +667,9 @@ async function createMaze(wallData) {
     }
     
     // Create all vertical walls with brick texture first
-    for (let y = 0; y < MAZE_SIZE; y++) {
-        for (let x = 0; x <= MAZE_SIZE; x++) {
-            if (verticalWalls[y][x]) {
+    for (let y = 0; y < SIZE; y++) {
+        for (let x = 0; x <= SIZE; x++) {
+            if (verticalWalls[y] && verticalWalls[y][x]) {
                 const wallGeometry = new THREE.BoxGeometry(
                     WALL_THICKNESS,
                     WALL_HEIGHT,
@@ -594,9 +678,9 @@ async function createMaze(wallData) {
                 
                 const wall = new THREE.Mesh(wallGeometry, defaultWallMaterial);
                 wall.position.set(
-                    (x - MAZE_SIZE / 2) * CELL_SIZE,
+                    (x - SIZE / 2) * CELL_SIZE,
                     WALL_HEIGHT / 2 - 0.5,
-                    (y - MAZE_SIZE / 2) * CELL_SIZE + CELL_SIZE / 2
+                    (y - SIZE / 2) * CELL_SIZE + CELL_SIZE / 2
                 );
                 group.add(wall);
                 
@@ -963,8 +1047,8 @@ async function createMaze(wallData) {
             ];
             
             for (const neighbor of neighbors) {
-                if (neighbor.x < 0 || neighbor.x >= MAZE_SIZE || 
-                    neighbor.z < 0 || neighbor.z >= MAZE_SIZE) continue;
+                if (neighbor.x < 0 || neighbor.x >= SIZE || 
+                    neighbor.z < 0 || neighbor.z >= SIZE) continue;
                 
                 const key = `${neighbor.x},${neighbor.z}`;
                 if (visitedBFS.has(key)) continue;
@@ -1037,8 +1121,8 @@ async function createMaze(wallData) {
             const x = parseInt(xStr);
             const y = parseInt(yStr);
             let isEdgeWall = 
-                (wallType === 'horizontal' && (y === 0 || y === MAZE_SIZE)) ||
-                (wallType === 'vertical' && (x === 0 || x === MAZE_SIZE));
+                (wallType === 'horizontal' && (y === 0 || y === SIZE)) ||
+                (wallType === 'vertical' && (x === 0 || x === SIZE));
             // In alley mode, alley walls are also edge walls (only one side)
             if (sceneMode === 'alley' && wallType === 'horizontal' && (y === alleyZForCount || y === alleyZForCount + 1)) {
                 isEdgeWall = true;
@@ -1072,8 +1156,8 @@ async function createMaze(wallData) {
             // Determine if this is an edge wall (only render on one side)
             const alleyZ = Math.floor(MAZE_SIZE / 2);
             let isEdgeWall = 
-                (wallType === 'horizontal' && (y === 0 || y === MAZE_SIZE)) ||
-                (wallType === 'vertical' && (x === 0 || x === MAZE_SIZE));
+                (wallType === 'horizontal' && (y === 0 || y === SIZE)) ||
+                (wallType === 'vertical' && (x === 0 || x === SIZE));
             
             // In alley mode, the alley walls are also edge walls (only face inward)
             let isAlleyWall = false;
@@ -1184,7 +1268,7 @@ async function regenerateScene() {
     cancelLoading = false;
     
     // Generate and add new maze
-    mazeData = generateMaze(MAZE_SIZE);
+    mazeData = generateMaze(getEffectiveSize());
     currentMazeGroup = await createMaze(mazeData);
     scene.add(currentMazeGroup);
     
@@ -1205,8 +1289,9 @@ async function regenerateScene() {
         playerPosition.z = (alleyZ - MAZE_SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
         playerRotation = Math.PI / 2; // Face east (along the alley)
     } else {
-        playerPosition.x = (-MAZE_SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
-        playerPosition.z = (-MAZE_SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
+        const SIZE = getEffectiveSize();
+        playerPosition.x = (-SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
+        playerPosition.z = (-SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
         playerRotation = 0;
     }
     camera.position.set(playerPosition.x, 1.2, playerPosition.z);
@@ -1258,7 +1343,7 @@ function init() {
     scene.add(directionalLight);
     
     // Generate and add maze
-    mazeData = generateMaze(MAZE_SIZE);
+    mazeData = generateMaze(getEffectiveSize());
     createMaze(mazeData).then(maze3D => {
         currentMazeGroup = maze3D;
         scene.add(maze3D);
@@ -1273,8 +1358,9 @@ function init() {
         playerRotation = Math.PI / 2; // Face east
     } else {
         // Default: top-left corner
-        playerPosition.x = (-MAZE_SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
-        playerPosition.z = (-MAZE_SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
+        const SIZE = getEffectiveSize();
+        playerPosition.x = (-SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
+        playerPosition.z = (-SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
     }
     camera.position.set(playerPosition.x, 1.2, playerPosition.z);
     
@@ -1455,15 +1541,17 @@ function onKeyUp(event) {
 
 // Convert world position to maze grid coordinates
 function worldToGrid(worldX, worldZ) {
-    const gridX = Math.floor((worldX + (MAZE_SIZE * CELL_SIZE) / 2) / CELL_SIZE);
-    const gridZ = Math.floor((worldZ + (MAZE_SIZE * CELL_SIZE) / 2) / CELL_SIZE);
+    const SIZE = getEffectiveSize();
+    const gridX = Math.floor((worldX + (SIZE * CELL_SIZE) / 2) / CELL_SIZE);
+    const gridZ = Math.floor((worldZ + (SIZE * CELL_SIZE) / 2) / CELL_SIZE);
     return { x: gridX, z: gridZ };
 }
 
 // Convert grid coordinates to world position (center of cell)
 function gridToWorld(gridX, gridZ) {
-    const worldX = (gridX - MAZE_SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
-    const worldZ = (gridZ - MAZE_SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
+    const SIZE = getEffectiveSize();
+    const worldX = (gridX - SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
+    const worldZ = (gridZ - SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
     return { x: worldX, z: worldZ };
 }
 
@@ -1475,10 +1563,11 @@ function findPath(start, goal) {
     if (!mazeData) return [];
     
     const { horizontalWalls, verticalWalls } = mazeData;
+    const SIZE = getEffectiveSize();
     
     // Validate inputs
-    if (start.x < 0 || start.x >= MAZE_SIZE || start.z < 0 || start.z >= MAZE_SIZE) return [];
-    if (goal.x < 0 || goal.x >= MAZE_SIZE || goal.z < 0 || goal.z >= MAZE_SIZE) return [];
+    if (start.x < 0 || start.x >= SIZE || start.z < 0 || start.z >= SIZE) return [];
+    if (goal.x < 0 || goal.x >= SIZE || goal.z < 0 || goal.z >= SIZE) return [];
     
     // Check if two adjacent cells are connected (no wall between them)
     function areConnected(cell1, cell2) {
@@ -1557,8 +1646,8 @@ function findPath(start, goal) {
         ];
         
         for (const neighbor of neighbors) {
-            if (neighbor.x < 0 || neighbor.x >= MAZE_SIZE || 
-                neighbor.z < 0 || neighbor.z >= MAZE_SIZE) {
+            if (neighbor.x < 0 || neighbor.x >= SIZE || 
+                neighbor.z < 0 || neighbor.z >= SIZE) {
                 continue;
             }
             
@@ -1582,53 +1671,53 @@ function getWallsAroundCell(cellX, cellZ) {
     
     // Top wall (horizontal wall at y = cellZ)
     // This wall is at the TOP of the cell, separating (cellX, cellZ-1) and (cellX, cellZ)
-    if (cellZ >= 0 && cellZ <= MAZE_SIZE) {
+    if (cellZ >= 0 && cellZ <= getEffectiveSize()) {
         walls.push({
             key: `horizontal-${cellX}-${cellZ}`,
             type: 'horizontal',
             x: cellX,
             y: cellZ,
-            worldX: (cellX - MAZE_SIZE / 2) * CELL_SIZE + CELL_SIZE / 2,
-            worldZ: (cellZ - MAZE_SIZE / 2) * CELL_SIZE,
+            worldX: (cellX - getEffectiveSize() / 2) * CELL_SIZE + CELL_SIZE / 2,
+            worldZ: (cellZ - getEffectiveSize() / 2) * CELL_SIZE,
             facingSide: 'positive' // Face towards positive Z (into the cell)
         });
     }
     
     // Bottom wall (horizontal wall at y = cellZ + 1)
-    if (cellZ + 1 >= 0 && cellZ + 1 <= MAZE_SIZE) {
+    if (cellZ + 1 >= 0 && cellZ + 1 <= getEffectiveSize()) {
         walls.push({
             key: `horizontal-${cellX}-${cellZ + 1}`,
             type: 'horizontal',
             x: cellX,
             y: cellZ + 1,
-            worldX: (cellX - MAZE_SIZE / 2) * CELL_SIZE + CELL_SIZE / 2,
-            worldZ: (cellZ + 1 - MAZE_SIZE / 2) * CELL_SIZE,
+            worldX: (cellX - getEffectiveSize() / 2) * CELL_SIZE + CELL_SIZE / 2,
+            worldZ: (cellZ + 1 - getEffectiveSize() / 2) * CELL_SIZE,
             facingSide: 'negative' // Face towards negative Z (into the cell)
         });
     }
     
     // Left wall (vertical wall at x = cellX)
-    if (cellX >= 0 && cellX <= MAZE_SIZE) {
+    if (cellX >= 0 && cellX <= getEffectiveSize()) {
         walls.push({
             key: `vertical-${cellX}-${cellZ}`,
             type: 'vertical',
             x: cellX,
             y: cellZ,
-            worldX: (cellX - MAZE_SIZE / 2) * CELL_SIZE,
-            worldZ: (cellZ - MAZE_SIZE / 2) * CELL_SIZE + CELL_SIZE / 2,
+            worldX: (cellX - getEffectiveSize() / 2) * CELL_SIZE,
+            worldZ: (cellZ - getEffectiveSize() / 2) * CELL_SIZE + CELL_SIZE / 2,
             facingSide: 'positive' // Face towards positive X (into the cell)
         });
     }
     
     // Right wall (vertical wall at x = cellX + 1)
-    if (cellX + 1 >= 0 && cellX + 1 <= MAZE_SIZE) {
+    if (cellX + 1 >= 0 && cellX + 1 <= getEffectiveSize()) {
         walls.push({
             key: `vertical-${cellX + 1}-${cellZ}`,
             type: 'vertical',
             x: cellX + 1,
             y: cellZ,
-            worldX: (cellX + 1 - MAZE_SIZE / 2) * CELL_SIZE,
-            worldZ: (cellZ - MAZE_SIZE / 2) * CELL_SIZE + CELL_SIZE / 2,
+            worldX: (cellX + 1 - getEffectiveSize() / 2) * CELL_SIZE,
+            worldZ: (cellZ - getEffectiveSize() / 2) * CELL_SIZE + CELL_SIZE / 2,
             facingSide: 'negative' // Face towards negative X (into the cell)
         });
     }
@@ -1681,15 +1770,37 @@ function isValidPosition(x, z) {
     
     const playerRadius = 0.4;
     const checkDist = playerRadius + WALL_THICKNESS / 2;
+    const SIZE = getEffectiveSize();
     
     // Check boundaries
-    const halfSize = (MAZE_SIZE * CELL_SIZE) / 2;
+    const halfSize = (SIZE * CELL_SIZE) / 2;
     
     // In alley mode, allow crossing X boundaries (for wrapping)
     if (sceneMode === 'alley') {
         // Only check Z boundaries
         if (z < -halfSize + checkDist || z > halfSize - checkDist) {
             return false;
+        }
+    } else if (sceneMode === 'openspace') {
+        // In openspace mode, allow crossing through doors
+        const doors = window.openspaceDoors;
+        if (doors) {
+            const inNorthDoor = z < -halfSize + checkDist && x >= doors.north.minX && x <= doors.north.maxX;
+            const inSouthDoor = z > halfSize - checkDist && x >= doors.south.minX && x <= doors.south.maxX;
+            const inWestDoor = x < -halfSize + checkDist && z >= doors.west.minZ && z <= doors.west.maxZ;
+            const inEastDoor = x > halfSize - checkDist && z >= doors.east.minZ && z <= doors.east.maxZ;
+            
+            // Block if at boundary but NOT in a door
+            if (x < -halfSize + checkDist && !inWestDoor) return false;
+            if (x > halfSize - checkDist && !inEastDoor) return false;
+            if (z < -halfSize + checkDist && !inNorthDoor) return false;
+            if (z > halfSize - checkDist && !inSouthDoor) return false;
+        } else {
+            // Fallback if doors not initialized
+            if (x < -halfSize + checkDist || x > halfSize - checkDist || 
+                z < -halfSize + checkDist || z > halfSize - checkDist) {
+                return false;
+            }
         }
     } else {
         if (x < -halfSize + checkDist || x > halfSize - checkDist || 
@@ -1701,6 +1812,21 @@ function isValidPosition(x, z) {
     if (!mazeData) return true;
     const { horizontalWalls, verticalWalls } = mazeData;
     
+    // Helper to check if a wall is a door wall (no collision in openspace mode)
+    const center = Math.floor(SIZE / 2);
+    const isDoorWall = (type, wallX, wallY) => {
+        if (sceneMode !== 'openspace') return false;
+        // North door: horizontal at y=0, x=center
+        if (type === 'horizontal' && wallY === 0 && wallX === center) return true;
+        // South door: horizontal at y=SIZE, x=center
+        if (type === 'horizontal' && wallY === SIZE && wallX === center) return true;
+        // West door: vertical at x=0, y=center
+        if (type === 'vertical' && wallX === 0 && wallY === center) return true;
+        // East door: vertical at x=SIZE, y=center
+        if (type === 'vertical' && wallX === SIZE && wallY === center) return true;
+        return false;
+    };
+    
     // Convert to grid coordinates
     const gridX = (x + halfSize) / CELL_SIZE;
     const gridZ = (z + halfSize) / CELL_SIZE;
@@ -1711,9 +1837,9 @@ function isValidPosition(x, z) {
     
     if (rowBelow >= 0 && rowBelow < horizontalWalls.length) {
         const col = Math.floor(gridX);
-        if (col >= 0 && col < MAZE_SIZE) {
-            // Check wall below
-            if (horizontalWalls[rowBelow][col] && Math.abs(gridZ - rowBelow) < checkDist / CELL_SIZE) {
+        if (col >= 0 && col < SIZE && horizontalWalls[rowBelow]) {
+            // Check wall below (skip if it's a door wall)
+            if (horizontalWalls[rowBelow][col] && !isDoorWall('horizontal', col, rowBelow) && Math.abs(gridZ - rowBelow) < checkDist / CELL_SIZE) {
                 return false;
             }
         }
@@ -1721,9 +1847,9 @@ function isValidPosition(x, z) {
     
     if (rowAbove >= 0 && rowAbove < horizontalWalls.length) {
         const col = Math.floor(gridX);
-        if (col >= 0 && col < MAZE_SIZE) {
-            // Check wall above
-            if (horizontalWalls[rowAbove][col] && Math.abs(gridZ - rowAbove) < checkDist / CELL_SIZE) {
+        if (col >= 0 && col < SIZE && horizontalWalls[rowAbove]) {
+            // Check wall above (skip if it's a door wall)
+            if (horizontalWalls[rowAbove][col] && !isDoorWall('horizontal', col, rowAbove) && Math.abs(gridZ - rowAbove) < checkDist / CELL_SIZE) {
                 return false;
             }
         }
@@ -1735,9 +1861,9 @@ function isValidPosition(x, z) {
     
     if (colLeft >= 0 && colLeft < verticalWalls[0].length) {
         const row = Math.floor(gridZ);
-        if (row >= 0 && row < MAZE_SIZE) {
-            // Check wall to left
-            if (verticalWalls[row][colLeft] && Math.abs(gridX - colLeft) < checkDist / CELL_SIZE) {
+        if (row >= 0 && row < SIZE && verticalWalls[row]) {
+            // Check wall to left (skip if it's a door wall)
+            if (verticalWalls[row][colLeft] && !isDoorWall('vertical', colLeft, row) && Math.abs(gridX - colLeft) < checkDist / CELL_SIZE) {
                 return false;
             }
         }
@@ -1745,9 +1871,9 @@ function isValidPosition(x, z) {
     
     if (colRight >= 0 && colRight < verticalWalls[0].length) {
         const row = Math.floor(gridZ);
-        if (row >= 0 && row < MAZE_SIZE) {
-            // Check wall to right
-            if (verticalWalls[row][colRight] && Math.abs(gridX - colRight) < checkDist / CELL_SIZE) {
+        if (row >= 0 && row < SIZE && verticalWalls[row]) {
+            // Check wall to right (skip if it's a door wall)
+            if (verticalWalls[row][colRight] && !isDoorWall('vertical', colRight, row) && Math.abs(gridX - colRight) < checkDist / CELL_SIZE) {
                 return false;
             }
         }
@@ -1778,7 +1904,8 @@ function isTouchingWall() {
     
     if (!mazeData) return false;
     const { horizontalWalls, verticalWalls } = mazeData;
-    const halfSize = (MAZE_SIZE * CELL_SIZE) / 2;
+    const SIZE = getEffectiveSize();
+    const halfSize = (SIZE * CELL_SIZE) / 2;
     
     // Convert to grid coordinates
     const gridX = (playerPosition.x + halfSize) / CELL_SIZE;
@@ -1790,7 +1917,7 @@ function isTouchingWall() {
     
     if (rowBelow >= 0 && rowBelow < horizontalWalls.length) {
         const col = Math.floor(gridX);
-        if (col >= 0 && col < MAZE_SIZE) {
+        if (col >= 0 && col < SIZE && horizontalWalls[rowBelow]) {
             if (horizontalWalls[rowBelow][col]) {
                 const wallZ = rowBelow * CELL_SIZE - halfSize;
                 const distToWall = Math.abs(playerPosition.z - wallZ);
@@ -1803,7 +1930,7 @@ function isTouchingWall() {
     
     if (rowAbove >= 0 && rowAbove < horizontalWalls.length) {
         const col = Math.floor(gridX);
-        if (col >= 0 && col < MAZE_SIZE) {
+        if (col >= 0 && col < SIZE && horizontalWalls[rowAbove]) {
             if (horizontalWalls[rowAbove][col]) {
                 const wallZ = rowAbove * CELL_SIZE - halfSize;
                 const distToWall = Math.abs(playerPosition.z - wallZ);
@@ -1820,7 +1947,7 @@ function isTouchingWall() {
     
     if (colLeft >= 0 && colLeft < verticalWalls[0].length) {
         const row = Math.floor(gridZ);
-        if (row >= 0 && row < MAZE_SIZE) {
+        if (row >= 0 && row < SIZE && verticalWalls[row]) {
             if (verticalWalls[row][colLeft]) {
                 const wallX = colLeft * CELL_SIZE - halfSize;
                 const distToWall = Math.abs(playerPosition.x - wallX);
@@ -1833,7 +1960,7 @@ function isTouchingWall() {
     
     if (colRight >= 0 && colRight < verticalWalls[0].length) {
         const row = Math.floor(gridZ);
-        if (row >= 0 && row < MAZE_SIZE) {
+        if (row >= 0 && row < SIZE && verticalWalls[row]) {
             if (verticalWalls[row][colRight]) {
                 const wallX = colRight * CELL_SIZE - halfSize;
                 const distToWall = Math.abs(playerPosition.x - wallX);
@@ -1941,18 +2068,20 @@ function updateMovement() {
                 
                 // In open space mode, only target cells adjacent to boundary walls (edge cells)
                 const isEdgeCell = (x, z) => {
-                    return x === 0 || x === MAZE_SIZE - 1 || z === 0 || z === MAZE_SIZE - 1;
+                    const S = getEffectiveSize();
+                    return x === 0 || x === S - 1 || z === 0 || z === S - 1;
                 };
                 
                 // Helper to generate a random candidate cell
                 const generateCandidate = () => {
                     if (sceneMode === 'openspace') {
+                        const S = getEffectiveSize();
                         const edge = Math.floor(Math.random() * 4);
                         switch (edge) {
-                            case 0: return { x: Math.floor(Math.random() * MAZE_SIZE), z: 0 };
-                            case 1: return { x: Math.floor(Math.random() * MAZE_SIZE), z: MAZE_SIZE - 1 };
-                            case 2: return { x: 0, z: Math.floor(Math.random() * MAZE_SIZE) };
-                            case 3: return { x: MAZE_SIZE - 1, z: Math.floor(Math.random() * MAZE_SIZE) };
+                            case 0: return { x: Math.floor(Math.random() * S), z: 0 };
+                            case 1: return { x: Math.floor(Math.random() * S), z: S - 1 };
+                            case 2: return { x: 0, z: Math.floor(Math.random() * S) };
+                            case 3: return { x: S - 1, z: Math.floor(Math.random() * S) };
                         }
                     } else if (sceneMode === 'alley') {
                         // Only cells in the alley row
@@ -1971,8 +2100,9 @@ function updateMovement() {
                 
                 // Calculate total valid cells for this scene mode
                 let totalValidCells;
+                const S = getEffectiveSize();
                 if (sceneMode === 'openspace') {
-                    totalValidCells = MAZE_SIZE * 4 - 4; // Edge cells (perimeter minus corners counted twice)
+                    totalValidCells = S * 4 - 4; // Edge cells (perimeter minus corners counted twice)
                 } else if (sceneMode === 'alley') {
                     totalValidCells = MAZE_SIZE; // Only cells in the alley row
                 } else {
@@ -1986,7 +2116,7 @@ function updateMovement() {
                 const requireUnvisited = !allVisited;
                 
                 // Keep increasing max path length until we find a target
-                while (!bestTarget && maxPathLength <= MAZE_SIZE * 2) {
+                while (!bestTarget && maxPathLength <= S * 2) {
                     let attempts = 0;
                     
                     while (attempts < 50 && !bestTarget) {
@@ -2026,7 +2156,7 @@ function updateMovement() {
                 // If still no target found (all unvisited exhausted), try visited cells
                 if (!bestTarget && requireUnvisited) {
                     maxPathLength = 6;
-                    while (!bestTarget && maxPathLength <= MAZE_SIZE * 2) {
+                    while (!bestTarget && maxPathLength <= S * 2) {
                         let attempts = 0;
                         while (attempts < 50 && !bestTarget) {
                             const candidateTarget = generateCandidate();
@@ -2185,6 +2315,26 @@ function updateMovement() {
                                 handleAlleyCrossing();
                             }
                         }
+                        
+                        // Door crossing for openspace mode (auto)
+                        if (sceneMode === 'openspace') {
+                            const halfSize = (getEffectiveSize() * CELL_SIZE) / 2;
+                            const roomSize = getEffectiveSize() * CELL_SIZE;
+                            
+                            if (playerPosition.x < -halfSize) {
+                                playerPosition.x += roomSize;
+                                handleOpenspaceDoorCrossing();
+                            } else if (playerPosition.x > halfSize) {
+                                playerPosition.x -= roomSize;
+                                handleOpenspaceDoorCrossing();
+                            } else if (playerPosition.z < -halfSize) {
+                                playerPosition.z += roomSize;
+                                handleOpenspaceDoorCrossing();
+                            } else if (playerPosition.z > halfSize) {
+                                playerPosition.z -= roomSize;
+                                handleOpenspaceDoorCrossing();
+                            }
+                        }
                     }
                 }
             }
@@ -2249,6 +2399,31 @@ function updateMovement() {
         }
     }
     
+    // Door crossing for openspace mode
+    if (sceneMode === 'openspace') {
+        const halfSize = (getEffectiveSize() * CELL_SIZE) / 2;
+        const roomSize = getEffectiveSize() * CELL_SIZE;
+        
+        // Check if player crossed through a door (beyond the boundary)
+        if (playerPosition.x < -halfSize) {
+            // Crossed west door - teleport to east side
+            playerPosition.x += roomSize;
+            handleOpenspaceDoorCrossing();
+        } else if (playerPosition.x > halfSize) {
+            // Crossed east door - teleport to west side
+            playerPosition.x -= roomSize;
+            handleOpenspaceDoorCrossing();
+        } else if (playerPosition.z < -halfSize) {
+            // Crossed north door - teleport to south side
+            playerPosition.z += roomSize;
+            handleOpenspaceDoorCrossing();
+        } else if (playerPosition.z > halfSize) {
+            // Crossed south door - teleport to north side
+            playerPosition.z -= roomSize;
+            handleOpenspaceDoorCrossing();
+        }
+    }
+    
     // Update camera
     camera.position.set(playerPosition.x, 1.2, playerPosition.z);
     camera.rotation.order = 'YXZ';
@@ -2260,8 +2435,9 @@ function updateMovement() {
 function drawMinimap() {
     if (!minimapCtx || !mazeData || !minimapVisible) return;
     
+    const SIZE = getEffectiveSize();
     const size = minimapCanvas.width;
-    const cellSize = size / MAZE_SIZE;
+    const cellSize = size / SIZE;
     const { horizontalWalls, verticalWalls } = mazeData;
     
     // Clear canvas
@@ -2276,9 +2452,9 @@ function drawMinimap() {
     const wallThickness = Math.max(2, cellSize * 0.1);
     
     // Draw horizontal walls (between rows)
-    for (let y = 0; y <= MAZE_SIZE; y++) {
-        for (let x = 0; x < MAZE_SIZE; x++) {
-            if (horizontalWalls[y][x]) {
+    for (let y = 0; y <= SIZE; y++) {
+        for (let x = 0; x < SIZE; x++) {
+            if (horizontalWalls[y] && horizontalWalls[y][x]) {
                 const wallKey = `horizontal-${x}-${y}`;
                 // Use orange for Wikipedia walls, gray for regular walls
                 minimapCtx.fillStyle = wikipediaWalls.has(wallKey) ? '#FF8C00' : '#666';
@@ -2293,9 +2469,9 @@ function drawMinimap() {
     }
     
     // Draw vertical walls (between columns)
-    for (let y = 0; y < MAZE_SIZE; y++) {
-        for (let x = 0; x <= MAZE_SIZE; x++) {
-            if (verticalWalls[y][x]) {
+    for (let y = 0; y < SIZE; y++) {
+        for (let x = 0; x <= SIZE; x++) {
+            if (verticalWalls[y] && verticalWalls[y][x]) {
                 const wallKey = `vertical-${x}-${y}`;
                 // Use orange for Wikipedia walls, gray for regular walls
                 minimapCtx.fillStyle = wikipediaWalls.has(wallKey) ? '#FF8C00' : '#666';
@@ -2470,12 +2646,13 @@ async function reloadAllPaintings() {
         const x = parseInt(xStr);
         const y = parseInt(yStr);
         
+        const SIZE = getEffectiveSize();
         if (type === 'horizontal') {
-            wallX = (x - MAZE_SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
-            wallZ = (y - MAZE_SIZE / 2) * CELL_SIZE;
+            wallX = (x - SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
+            wallZ = (y - SIZE / 2) * CELL_SIZE;
         } else {
-            wallX = (x - MAZE_SIZE / 2) * CELL_SIZE;
-            wallZ = (y - MAZE_SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
+            wallX = (x - SIZE / 2) * CELL_SIZE;
+            wallZ = (y - SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
         }
         
         const dx = wallX - playerStartX;
@@ -2490,14 +2667,15 @@ async function reloadAllPaintings() {
     // Calculate total images to load (edge walls = 1 image, internal walls = 2 images)
     loadedImagesCount = 0;
     totalImagesToLoad = 0;
+    const SIZE = getEffectiveSize();
     const alleyZ = Math.floor(MAZE_SIZE / 2);
     for (const { wallKey } of wallsWithDistance) {
         const [wallType, xStr, yStr] = wallKey.split('-');
         const x = parseInt(xStr);
         const y = parseInt(yStr);
         let isEdgeWall = 
-            (wallType === 'horizontal' && (y === 0 || y === MAZE_SIZE)) ||
-            (wallType === 'vertical' && (x === 0 || x === MAZE_SIZE));
+            (wallType === 'horizontal' && (y === 0 || y === SIZE)) ||
+            (wallType === 'vertical' && (x === 0 || x === SIZE));
         // In alley mode, alley walls are also edge walls
         if (sceneMode === 'alley' && wallType === 'horizontal' && (y === alleyZ || y === alleyZ + 1)) {
             isEdgeWall = true;
@@ -2526,8 +2704,8 @@ async function reloadAllPaintings() {
         const y = parseInt(yStr);
         
         let isEdgeWall = 
-            (wallType === 'horizontal' && (y === 0 || y === MAZE_SIZE)) ||
-            (wallType === 'vertical' && (x === 0 || x === MAZE_SIZE));
+            (wallType === 'horizontal' && (y === 0 || y === SIZE)) ||
+            (wallType === 'vertical' && (x === 0 || x === SIZE));
         
         // In alley mode, alley walls are also edge walls
         let isAlleyWall = false;
@@ -2584,6 +2762,19 @@ async function handleAlleyCrossing() {
     if (sceneMode !== 'alley') return;
     
     console.log('Crossed alley boundary, loading fresh paintings...');
+    
+    // Clear current paintings
+    clearAllPaintings();
+    
+    // Load new paintings
+    await reloadAllPaintings();
+}
+
+// Handle crossing openspace door - load fresh paintings
+async function handleOpenspaceDoorCrossing() {
+    if (sceneMode !== 'openspace') return;
+    
+    console.log('Crossed door, loading new room...');
     
     // Clear current paintings
     clearAllPaintings();
