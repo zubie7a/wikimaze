@@ -13,6 +13,9 @@ let minimapCanvas = null;
 let minimapCtx = null;
 let minimapVisible = true; // Minimap visibility state
 let statsDiv = null; // Stats display element
+let useRandomImages = true; // Whether to use random images or topic-based search
+let searchTopic = ''; // Topic to search for Wikipedia images
+let isLoadingImages = false; // Whether images are currently being loaded
 let statsVisible = false; // Stats visibility state
 let wikipediaWalls = new Set(); // Track which walls have Wikipedia textures (format: "type-x-y")
 let globalWallMeshMap = null; // Global reference to wall mesh map for loading paintings on demand
@@ -195,6 +198,92 @@ async function fetchRandomWikipediaImage() {
         }
     }
     return null; // No image found after max attempts
+}
+
+// Fetch Wikipedia images related to a topic
+let topicSearchResults = []; // Cache of search results for the current topic
+let topicSearchIndex = 0; // Current index in the search results
+let topicResultsFetched = false; // Whether we've already fetched results for this topic
+
+async function fetchTopicWikipediaImage(topic) {
+    // If we have cached results, use them (cycling through if needed)
+    if (topicSearchResults.length > 0 && topicResultsFetched) {
+        // Cycle through results if we've used them all
+        if (topicSearchIndex >= topicSearchResults.length) {
+            topicSearchIndex = 0;
+            // Re-shuffle for variety when cycling
+            for (let i = topicSearchResults.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [topicSearchResults[i], topicSearchResults[j]] = [topicSearchResults[j], topicSearchResults[i]];
+            }
+        }
+        const result = topicSearchResults[topicSearchIndex];
+        topicSearchIndex++;
+        return result;
+    }
+    
+    // Fetch new results (only once per topic)
+    const maxAttempts = 3;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        try {
+            // Search for articles related to the topic
+            const searchResponse = await fetch(
+                `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(topic)}&srlimit=50&format=json&origin=*`
+            );
+            const searchData = await searchResponse.json();
+            
+            const searchResults = searchData.query?.search;
+            if (!searchResults || searchResults.length === 0) {
+                console.log('No search results found for topic:', topic);
+                return null;
+            }
+            
+            // Get thumbnails for the search results
+            const pageIds = searchResults.map(r => r.pageid).join('|');
+            const imagesResponse = await fetch(
+                `https://en.wikipedia.org/w/api.php?action=query&pageids=${pageIds}&prop=pageimages&pithumbsize=400&format=json&origin=*`
+            );
+            const imagesData = await imagesResponse.json();
+            
+            const pages = imagesData.query?.pages;
+            if (pages) {
+                // Filter to only pages with thumbnails and cache them
+                topicSearchResults = Object.values(pages)
+                    .filter(page => page.thumbnail)
+                    .map(page => ({
+                        imageUrl: page.thumbnail.source,
+                        title: page.title
+                    }));
+                
+                // Shuffle the results for variety
+                for (let i = topicSearchResults.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [topicSearchResults[i], topicSearchResults[j]] = [topicSearchResults[j], topicSearchResults[i]];
+                }
+                
+                topicSearchIndex = 0;
+                topicResultsFetched = true;
+                
+                if (topicSearchResults.length > 0) {
+                    const result = topicSearchResults[topicSearchIndex];
+                    topicSearchIndex++;
+                    return result;
+                }
+            }
+        } catch (error) {
+            console.log('Error fetching topic Wikipedia image, retrying...', error);
+        }
+    }
+    return null;
+}
+
+// Get a Wikipedia image (either random or topic-based)
+async function getWikipediaImage() {
+    if (useRandomImages || !searchTopic.trim()) {
+        return await fetchRandomWikipediaImage();
+    } else {
+        return await fetchTopicWikipediaImage(searchTopic);
+    }
 }
 
 // Create the 3D maze from boundary walls
@@ -712,7 +801,7 @@ async function createMaze(wallData) {
                     side = x === 0 ? 'positive' : 'negative';
                 }
                 
-                const result = await fetchRandomWikipediaImage();
+                const result = await getWikipediaImage();
                 if (result && result.imageUrl) {
                     await createFramedPicture(result.imageUrl, wall, type, side, result.title, wallKey);
                 } else {
@@ -721,8 +810,8 @@ async function createMaze(wallData) {
                 }
             } else {
                 // Internal wall: place images on both sides
-                const result1 = await fetchRandomWikipediaImage();
-                const result2 = await fetchRandomWikipediaImage();
+                const result1 = await getWikipediaImage();
+                const result2 = await getWikipediaImage();
                 
                 if (result1 && result1.imageUrl) {
                     await createFramedPicture(result1.imageUrl, wall, type, 'positive', result1.title, wallKey);
@@ -874,9 +963,12 @@ function onKeyDown(event) {
             // Toggle stats display
             statsVisible = !statsVisible;
             if (statsDiv) {
-                statsDiv.style.display = statsVisible ? 'block' : 'none';
                 if (statsVisible) {
+                    statsDiv.style.display = 'block';
+                    statsDiv.innerHTML = ''; // Clear to force rebuild with fresh controls
                     updateStatsDisplay();
+                } else {
+                    statsDiv.style.display = 'none';
                 }
             }
             break;
@@ -1124,7 +1216,7 @@ async function loadPaintingInCell(cellX, cellZ) {
         wikipediaWalls.add(wall.key);
         
         // Load a painting on this wall
-        const result = await fetchRandomWikipediaImage();
+        const result = await getWikipediaImage();
         if (result && result.imageUrl) {
             await globalCreateFramedPicture(result.imageUrl, wallMesh, wall.type, wall.facingSide, result.title, wall.key);
             return wall;
@@ -1709,20 +1801,221 @@ function animate() {
     renderer.render(scene, camera);
 }
 
+// Clear all paintings from walls
+function clearAllPaintings() {
+    if (!globalWallMeshMap) return;
+    
+    // Remove all frame groups from walls
+    globalWallMeshMap.forEach((wallMesh, wallKey) => {
+        // Find and remove all frame groups (children that are Groups)
+        const childrenToRemove = [];
+        wallMesh.children.forEach(child => {
+            if (child.isGroup) {
+                childrenToRemove.push(child);
+            }
+        });
+        childrenToRemove.forEach(child => {
+            wallMesh.remove(child);
+            // Dispose of geometries and materials
+            child.traverse(obj => {
+                if (obj.geometry) obj.geometry.dispose();
+                if (obj.material) {
+                    if (obj.material.map) obj.material.map.dispose();
+                    obj.material.dispose();
+                }
+            });
+        });
+    });
+    
+    // Clear tracking data
+    wikipediaWalls.clear();
+    paintingPositions.clear();
+}
+
+// Reload all paintings with current settings
+async function reloadAllPaintings() {
+    if (isLoadingImages) {
+        console.log('Already loading images, please wait...');
+        return;
+    }
+    
+    isLoadingImages = true;
+    
+    // Reset topic search cache
+    topicSearchResults = [];
+    topicSearchIndex = 0;
+    topicResultsFetched = false;
+    
+    // Clear existing paintings
+    clearAllPaintings();
+    
+    // Get player position for distance sorting
+    const playerStartX = playerPosition.x;
+    const playerStartZ = playerPosition.z;
+    
+    // Calculate distance for each wall and sort
+    const wallsWithDistance = Array.from(globalWallMeshMap.keys()).map(wallKey => {
+        let wallX, wallZ;
+        
+        const [type, xStr, yStr] = wallKey.split('-');
+        const x = parseInt(xStr);
+        const y = parseInt(yStr);
+        
+        if (type === 'horizontal') {
+            wallX = (x - MAZE_SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
+            wallZ = (y - MAZE_SIZE / 2) * CELL_SIZE;
+        } else {
+            wallX = (x - MAZE_SIZE / 2) * CELL_SIZE;
+            wallZ = (y - MAZE_SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
+        }
+        
+        const dx = wallX - playerStartX;
+        const dz = wallZ - playerStartZ;
+        const distance = Math.sqrt(dx * dx + dz * dz);
+        
+        return { wallKey, distance, type };
+    });
+    
+    wallsWithDistance.sort((a, b) => a.distance - b.distance);
+    
+    // Load images
+    for (const { wallKey, type } of wallsWithDistance) {
+        if (wikipediaWalls.has(wallKey)) continue;
+        
+        const wall = globalWallMeshMap.get(wallKey);
+        if (!wall) continue;
+        
+        wikipediaWalls.add(wallKey);
+        
+        const [wallType, xStr, yStr] = wallKey.split('-');
+        const x = parseInt(xStr);
+        const y = parseInt(yStr);
+        
+        const isEdgeWall = 
+            (wallType === 'horizontal' && (y === 0 || y === MAZE_SIZE)) ||
+            (wallType === 'vertical' && (x === 0 || x === MAZE_SIZE));
+        
+        if (isEdgeWall) {
+            let side;
+            if (wallType === 'horizontal') {
+                side = y === 0 ? 'positive' : 'negative';
+            } else {
+                side = x === 0 ? 'positive' : 'negative';
+            }
+            
+            const result = await getWikipediaImage();
+            if (result && result.imageUrl) {
+                await globalCreateFramedPicture(result.imageUrl, wall, type, side, result.title, wallKey);
+            } else {
+                wikipediaWalls.delete(wallKey);
+            }
+        } else {
+            const result1 = await getWikipediaImage();
+            const result2 = await getWikipediaImage();
+            
+            if (result1 && result1.imageUrl) {
+                await globalCreateFramedPicture(result1.imageUrl, wall, type, 'positive', result1.title, wallKey);
+            }
+            if (result2 && result2.imageUrl) {
+                await globalCreateFramedPicture(result2.imageUrl, wall, type, 'negative', result2.title, wallKey);
+            }
+            
+            if (!(result1 && result1.imageUrl) && !(result2 && result2.imageUrl)) {
+                wikipediaWalls.delete(wallKey);
+            }
+        }
+    }
+    
+    isLoadingImages = false;
+    console.log('Finished loading images');
+}
+
 // Update stats display
 function updateStatsDisplay() {
     if (!statsDiv) return;
     
     const currentCell = worldToGrid(playerPosition.x, playerPosition.z);
-    statsDiv.innerHTML = `
-        <div style="font-weight: bold; margin-bottom: 5px;">=== Stats ===</div>
+    
+    // Check if controls section exists, if not create the full structure
+    let statsContent = statsDiv.querySelector('#stats-content');
+    if (!statsContent) {
+        statsDiv.innerHTML = `
+            <div style="font-weight: bold; margin-bottom: 5px;">=== Stats ===</div>
+            <div id="stats-content"></div>
+            <hr style="border-color: #666; margin: 10px 0;">
+            <div style="font-weight: bold; margin-bottom: 5px;">=== Images ===</div>
+            <div style="margin-bottom: 8px;">
+                <label style="cursor: pointer;">
+                    <input type="checkbox" id="random-images-checkbox" ${useRandomImages ? 'checked' : ''}>
+                    Random images
+                </label>
+            </div>
+            <div id="topic-controls" style="display: ${useRandomImages ? 'none' : 'block'};">
+                <div style="margin-bottom: 5px;">Topic:</div>
+                <div style="display: flex; gap: 5px;">
+                    <input type="text" id="topic-input" value="${searchTopic}" 
+                           style="flex: 1; padding: 3px; background: #333; color: #fff; border: 1px solid #666;">
+                    <button id="load-topic-btn" 
+                            style="padding: 3px 8px; background: #4a4; color: #fff; border: none; cursor: pointer;"
+                            ${isLoadingImages ? 'disabled' : ''}>
+                        ${isLoadingImages ? 'Loading...' : 'Load'}
+                    </button>
+                </div>
+            </div>
+        `;
+        
+        // Attach event handlers
+        const checkbox = statsDiv.querySelector('#random-images-checkbox');
+        const topicControls = statsDiv.querySelector('#topic-controls');
+        const topicInput = statsDiv.querySelector('#topic-input');
+        const loadBtn = statsDiv.querySelector('#load-topic-btn');
+        
+        checkbox.addEventListener('change', (e) => {
+            useRandomImages = e.target.checked;
+            topicControls.style.display = useRandomImages ? 'none' : 'block';
+        });
+        
+        topicInput.addEventListener('input', (e) => {
+            searchTopic = e.target.value;
+        });
+        
+        topicInput.addEventListener('keydown', (e) => {
+            e.stopPropagation(); // Prevent game controls from triggering
+        });
+        
+        topicInput.addEventListener('keyup', (e) => {
+            e.stopPropagation();
+            if (e.key === 'Enter' && !isLoadingImages) {
+                reloadAllPaintings();
+            }
+        });
+        
+        loadBtn.addEventListener('click', () => {
+            if (!isLoadingImages) {
+                reloadAllPaintings();
+            }
+        });
+        
+        statsContent = statsDiv.querySelector('#stats-content');
+    }
+    
+    // Update only the dynamic stats content
+    statsContent.innerHTML = `
         <div>World Position: (${playerPosition.x.toFixed(2)}, ${playerPosition.z.toFixed(2)})</div>
         <div>Cell Position: (${currentCell.x}, ${currentCell.z})</div>
         <div>Target Cell: ${targetCell ? `(${targetCell.x}, ${targetCell.z})` : 'None'}</div>
         <div>Path Length: ${navigationPath.length > 0 ? navigationPath.length - 1 : 0}</div>
         <div>Viewing Painting: ${isViewingPainting ? `Phase ${viewingPhase + 1}/3` : 'NO'}</div>
         <div>Auto Mode: ${autoMode ? 'ON' : 'OFF'}</div>
+        <div>Loading: ${isLoadingImages ? 'YES' : 'NO'}</div>
     `;
+    
+    // Update load button state
+    const loadBtn = statsDiv.querySelector('#load-topic-btn');
+    if (loadBtn) {
+        loadBtn.disabled = isLoadingImages;
+        loadBtn.textContent = isLoadingImages ? 'Loading...' : 'Load';
+    }
 }
 
 // Handle window resize
