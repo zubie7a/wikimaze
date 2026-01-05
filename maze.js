@@ -28,6 +28,7 @@ let collisionsEnabled = true; // Wall collision detection
 let statsDiv = null; // Stats display element
 let useRandomImages = true; // Whether to use random images or topic-based search
 let searchTopic = ''; // Topic to search for Wikipedia images
+let textureStyle = 'w95'; // 'w95' (framed with bricks) or 'entirewall' (image covers entire wall)
 let isLoadingImages = false; // Whether images are currently being loaded
 let loadedImagesCount = 0; // Number of images loaded so far
 let totalImagesToLoad = 0; // Total number of images to load
@@ -398,27 +399,45 @@ async function createMaze(wallData) {
     const { horizontalWalls, verticalWalls } = wallData;
     const SIZE = getEffectiveSize(); // Use effective size for this scene
     
-    // Create floor (brown)
+    // Create floor - color depends on texture style
     const floorGeometry = new THREE.PlaneGeometry(
         SIZE * CELL_SIZE,
         SIZE * CELL_SIZE
     );
+    const floorColor = textureStyle === 'entirewall' ? 0xE8E8E8 : 0x8B4513; // Whiteish or Brown
     const floorMaterial = new THREE.MeshLambertMaterial({ 
-        color: 0x8B4513 // Brown
+        color: floorColor
     });
     const floor = new THREE.Mesh(floorGeometry, floorMaterial);
     floor.rotation.x = -Math.PI / 2;
     floor.position.y = -0.5;
     group.add(floor);
     
-    // Create ceiling (gray/rock)
+    // Create ceiling - texture for W95, solid color for entirewall
     const ceilingGeometry = new THREE.PlaneGeometry(
         SIZE * CELL_SIZE,
         SIZE * CELL_SIZE
     );
-    const ceilingMaterial = new THREE.MeshLambertMaterial({ 
-        color: 0x708090 // Slate gray
-    });
+    let ceilingMaterial;
+    if (textureStyle === 'entirewall') {
+        ceilingMaterial = new THREE.MeshLambertMaterial({ 
+            color: 0x505050 // Grayish
+        });
+    } else {
+        // W95 style - use ceiling texture
+        const ceilingTextureLoader = new THREE.TextureLoader();
+        const ceilingTexture = ceilingTextureLoader.load(
+            'https://i.imgur.com/yd7jpxq.jpeg',
+            function(texture) {
+                texture.wrapS = THREE.RepeatWrapping;
+                texture.wrapT = THREE.RepeatWrapping;
+                texture.repeat.set(SIZE, SIZE); // Tile based on maze size
+            }
+        );
+        ceilingMaterial = new THREE.MeshLambertMaterial({ 
+            map: ceilingTexture
+        });
+    }
     const ceiling = new THREE.Mesh(ceilingGeometry, ceilingMaterial);
     ceiling.rotation.x = Math.PI / 2;
     ceiling.position.y = WALL_HEIGHT - 0.5;
@@ -566,20 +585,27 @@ async function createMaze(wallData) {
     // Texture loader for Wikipedia images
     const textureLoader = new THREE.TextureLoader();
     
-    // Load default wall texture (brick texture)
-    const defaultWallTexture = textureLoader.load(
-        'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSUg8n8t7AKXzKt5-Sr9O96avECwEZnGShJWQ&s',
-        function(texture) {
-            texture.wrapS = THREE.RepeatWrapping;
-            texture.wrapT = THREE.RepeatWrapping;
-            texture.repeat.set(2, 2);
-        }
-    );
-    
-    // Default wall material with brick texture
-    const defaultWallMaterial = new THREE.MeshLambertMaterial({ 
-        map: defaultWallTexture
-    });
+    // Default wall material - depends on texture style
+    let defaultWallMaterial;
+    if (textureStyle === 'entirewall') {
+        // Black walls for entire wall style
+        defaultWallMaterial = new THREE.MeshLambertMaterial({ 
+            color: 0x000000
+        });
+    } else {
+        // Load brick texture for W95 style
+        const defaultWallTexture = textureLoader.load(
+            'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSUg8n8t7AKXzKt5-Sr9O96avECwEZnGShJWQ&s',
+            function(texture) {
+                texture.wrapS = THREE.RepeatWrapping;
+                texture.wrapT = THREE.RepeatWrapping;
+                texture.repeat.set(2, 2);
+            }
+        );
+        defaultWallMaterial = new THREE.MeshLambertMaterial({ 
+            map: defaultWallTexture
+        });
+    }
     
     // Collect all wall positions (only walls that exist after pruning)
     // This ensures we don't try to assign Wikipedia images to pruned walls
@@ -808,45 +834,9 @@ async function createMaze(wallData) {
                     texture.wrapS = THREE.ClampToEdgeWrapping;
                     texture.wrapT = THREE.ClampToEdgeWrapping;
                     
-                    // Get dimensions from loaded texture
-                    const dimensions = {
-                        width: texture.image.width,
-                        height: texture.image.height
-                    };
-                    const aspectRatio = dimensions.width / dimensions.height;
-                    
                     // Wall dimensions
                     const wallWidth = CELL_SIZE;
                     const wallHeight = WALL_HEIGHT;
-                    
-                    // Frame should be 40-70% of wall size, maintaining image aspect ratio
-                    const sizeMultiplier = 0.4 + Math.random() * 0.3; // Random between 0.4 and 0.7
-                    const maxFrameWidth = wallWidth * sizeMultiplier;
-                    const maxFrameHeight = wallHeight * sizeMultiplier;
-                    
-                    // Calculate frame dimensions maintaining aspect ratio
-                    let frameWidth, frameHeight;
-                    if (aspectRatio > 1) {
-                        // Landscape: width is limiting factor
-                        frameWidth = maxFrameWidth;
-                        frameHeight = maxFrameWidth / aspectRatio;
-                        if (frameHeight > maxFrameHeight) {
-                            frameHeight = maxFrameHeight;
-                            frameWidth = maxFrameHeight * aspectRatio;
-                        }
-                    } else {
-                        // Portrait: height is limiting factor
-                        frameHeight = maxFrameHeight;
-                        frameWidth = maxFrameHeight * aspectRatio;
-                        if (frameWidth > maxFrameWidth) {
-                            frameWidth = maxFrameWidth;
-                            frameHeight = maxFrameWidth / aspectRatio;
-                        }
-                    }
-                    
-                    // Frame thickness
-                    const frameThickness = 0.1;
-                    const frameDepth = 0.05;
                     
                     // Check for and remove any existing frame on this wall/side
                     const frameKey = `${wallKey}-${side}`;
@@ -869,123 +859,213 @@ async function createMaze(wallData) {
                         frameGroups.delete(frameKey);
                     }
                     
-                    // Create frame group
+                    // Create frame group (used for both styles)
                     const frameGroup = new THREE.Group();
                     
-                    // Create frame (using a box with a hole, or multiple boxes)
-                    // We'll create a frame using 4 boxes (top, bottom, left, right)
-                    const frameMaterial = new THREE.MeshLambertMaterial({ color: 0x8B4513 }); // Brown frame
-                    
-                    // Top frame piece
-                    const topFrame = new THREE.Mesh(
-                        new THREE.BoxGeometry(frameWidth + frameThickness * 2, frameThickness, frameDepth),
-                        frameMaterial
-                    );
-                    topFrame.position.y = frameHeight / 2 + frameThickness / 2;
-                    frameGroup.add(topFrame);
-                    
-                    // Bottom frame piece
-                    const bottomFrame = new THREE.Mesh(
-                        new THREE.BoxGeometry(frameWidth + frameThickness * 2, frameThickness, frameDepth),
-                        frameMaterial
-                    );
-                    bottomFrame.position.y = -frameHeight / 2 - frameThickness / 2;
-                    frameGroup.add(bottomFrame);
-                    
-                    // Left frame piece
-                    const leftFrame = new THREE.Mesh(
-                        new THREE.BoxGeometry(frameThickness, frameHeight, frameDepth),
-                        frameMaterial
-                    );
-                    leftFrame.position.x = -frameWidth / 2 - frameThickness / 2;
-                    frameGroup.add(leftFrame);
-                    
-                    // Right frame piece
-                    const rightFrame = new THREE.Mesh(
-                        new THREE.BoxGeometry(frameThickness, frameHeight, frameDepth),
-                        frameMaterial
-                    );
-                    rightFrame.position.x = frameWidth / 2 + frameThickness / 2;
-                    frameGroup.add(rightFrame);
-                    
-                    // Create picture plane with image texture (using the already loaded texture)
-                    const pictureGeometry = new THREE.PlaneGeometry(frameWidth, frameHeight);
-                    const pictureMaterial = new THREE.MeshLambertMaterial({ 
-                        map: pictureTexture,
-                        side: THREE.DoubleSide
-                    });
-                    const picture = new THREE.Mesh(pictureGeometry, pictureMaterial);
-                    picture.position.z = frameDepth / 2 + 0.001; // Slightly in front of frame
-                    frameGroup.add(picture);
-                    
-                    // Calculate random offsets for frame position with 30% margin on all sides
-                    // Wall center is at (0, 0), wall extends from -wallWidth/2 to +wallWidth/2
-                    // Frame edges must be at least 30% of wall size away from wall edges
-                    const margin = 0.3;
-                    const frameTotalWidth = frameWidth + frameThickness * 2;
-                    const frameTotalHeight = frameHeight + frameThickness * 2;
-                    
-                    // Calculate allowed range for frame center X position
-                    const minX = -wallWidth/2 + margin * wallWidth + frameTotalWidth/2;
-                    const maxX = wallWidth/2 - margin * wallWidth - frameTotalWidth/2;
-                    const randomX = maxX > minX ? minX + Math.random() * (maxX - minX) : 0;
-                    
-                    // Calculate allowed range for frame center Y position
-                    const minY = -wallHeight/2 + margin * wallHeight + frameTotalHeight/2;
-                    const maxY = wallHeight/2 - margin * wallHeight - frameTotalHeight/2;
-                    const randomY = maxY > minY ? minY + Math.random() * (maxY - minY) : 0;
-                    
-                    // Position frame group on the wall based on wall type and side
-                    let zOffset, xOffset;
-                    if (wallType === 'horizontal') {
-                        // Horizontal wall: frame should face along Z axis
-                        // 'positive' side = positive Z (south), 'negative' side = negative Z (north)
-                        zOffset = side === 'positive' 
-                            ? WALL_THICKNESS / 2 + frameDepth / 2 
-                            : -(WALL_THICKNESS / 2 + frameDepth / 2);
-                        frameGroup.position.set(randomX, randomY, zOffset);
-                        // Flip the frame 180 degrees on Y axis if on negative side so it faces the right direction
-                        if (side === 'negative') {
-                            frameGroup.rotation.y = Math.PI;
-                        }
-                    } else {
-                        // Vertical wall: frame should face along X axis
-                        // 'positive' side = positive X (east), 'negative' side = negative X (west)
-                        xOffset = side === 'positive'
-                            ? WALL_THICKNESS / 2 + frameDepth / 2
-                            : -(WALL_THICKNESS / 2 + frameDepth / 2);
-                        frameGroup.position.set(xOffset, randomY, randomX);
-                        // Rotate to face the correct direction
-                        if (side === 'positive') {
-                            // Face positive X (east)
-                            frameGroup.rotation.y = Math.PI / 2;
-                        } else {
-                            // Face negative X (west) - rotate 180 degrees more than positive side
-                            frameGroup.rotation.y = -Math.PI / 2;
-                        }
-                    }
-                    
-                    // Create title plate below the frame
-                    if (title) {
-                        // Get text texture and dimensions
-                        const textData = createTextTexture(title);
-                        const plateWidth = textData.width;
-                        const plateHeight = textData.height;
-                        
-                        // Create plate geometry with exact text dimensions
-                        const plateGeometry = new THREE.PlaneGeometry(plateWidth, plateHeight);
-                        const plateMaterial = new THREE.MeshLambertMaterial({ 
-                            map: textData.texture,
-                            transparent: true,
+                    if (textureStyle === 'entirewall') {
+                        // ENTIRE WALL STYLE: Image covers entire wall face, no frame, no aspect ratio preservation
+                        const pictureGeometry = new THREE.PlaneGeometry(wallWidth, wallHeight);
+                        const pictureMaterial = new THREE.MeshLambertMaterial({ 
+                            map: pictureTexture,
                             side: THREE.DoubleSide
                         });
-                        const plate = new THREE.Mesh(plateGeometry, plateMaterial);
+                        const picture = new THREE.Mesh(pictureGeometry, pictureMaterial);
+                        frameGroup.add(picture);
                         
-                        // Position plate below the frame (in local coordinates relative to frameGroup)
-                        // Position it at the same depth as the frame so it's flush with the wall
-                        plate.position.set(0, -frameHeight / 2 - frameThickness - plateHeight / 2, 0);
+                        // Position the plane on the wall surface
+                        const offset = WALL_THICKNESS / 2 + 0.001; // Slightly in front of wall
+                        if (wallType === 'horizontal') {
+                            const zOffset = side === 'positive' ? offset : -offset;
+                            frameGroup.position.set(0, 0, zOffset);
+                            if (side === 'negative') {
+                                frameGroup.rotation.y = Math.PI;
+                            }
+                        } else {
+                            const xOffset = side === 'positive' ? offset : -offset;
+                            frameGroup.position.set(xOffset, 0, 0);
+                            if (side === 'positive') {
+                                frameGroup.rotation.y = Math.PI / 2;
+                            } else {
+                                frameGroup.rotation.y = -Math.PI / 2;
+                            }
+                        }
                         
-                        frameGroup.add(plate);
+                        // Store painting positions for viewing (centered on wall)
+                        if (wallKey) {
+                            const wallWorldY = wall.position.y;
+                            paintingPositions.set(`${wallKey}-${side}`, {
+                                centerY: wallWorldY,
+                                plateY: wallWorldY
+                            });
+                        }
+                    } else {
+                        // W95 STYLE: Framed picture with aspect ratio preserved
+                        // Get dimensions from loaded texture
+                        const dimensions = {
+                            width: texture.image.width,
+                            height: texture.image.height
+                        };
+                        const aspectRatio = dimensions.width / dimensions.height;
+                        
+                        // Frame should be 40-70% of wall size, maintaining image aspect ratio
+                        const sizeMultiplier = 0.4 + Math.random() * 0.3; // Random between 0.4 and 0.7
+                        const maxFrameWidth = wallWidth * sizeMultiplier;
+                        const maxFrameHeight = wallHeight * sizeMultiplier;
+                        
+                        // Calculate frame dimensions maintaining aspect ratio
+                        let frameWidth, frameHeight;
+                        if (aspectRatio > 1) {
+                            // Landscape: width is limiting factor
+                            frameWidth = maxFrameWidth;
+                            frameHeight = maxFrameWidth / aspectRatio;
+                            if (frameHeight > maxFrameHeight) {
+                                frameHeight = maxFrameHeight;
+                                frameWidth = maxFrameHeight * aspectRatio;
+                            }
+                        } else {
+                            // Portrait: height is limiting factor
+                            frameHeight = maxFrameHeight;
+                            frameWidth = maxFrameHeight * aspectRatio;
+                            if (frameWidth > maxFrameWidth) {
+                                frameWidth = maxFrameWidth;
+                                frameHeight = maxFrameWidth / aspectRatio;
+                            }
+                        }
+                        
+                        // Frame thickness
+                        const frameThickness = 0.1;
+                        const frameDepth = 0.05;
+                        
+                        // Create frame (using a box with a hole, or multiple boxes)
+                        // We'll create a frame using 4 boxes (top, bottom, left, right)
+                        const frameMaterial = new THREE.MeshLambertMaterial({ color: 0x8B4513 }); // Brown frame
+                        
+                        // Top frame piece
+                        const topFrame = new THREE.Mesh(
+                            new THREE.BoxGeometry(frameWidth + frameThickness * 2, frameThickness, frameDepth),
+                            frameMaterial
+                        );
+                        topFrame.position.y = frameHeight / 2 + frameThickness / 2;
+                        frameGroup.add(topFrame);
+                        
+                        // Bottom frame piece
+                        const bottomFrame = new THREE.Mesh(
+                            new THREE.BoxGeometry(frameWidth + frameThickness * 2, frameThickness, frameDepth),
+                            frameMaterial
+                        );
+                        bottomFrame.position.y = -frameHeight / 2 - frameThickness / 2;
+                        frameGroup.add(bottomFrame);
+                        
+                        // Left frame piece
+                        const leftFrame = new THREE.Mesh(
+                            new THREE.BoxGeometry(frameThickness, frameHeight, frameDepth),
+                            frameMaterial
+                        );
+                        leftFrame.position.x = -frameWidth / 2 - frameThickness / 2;
+                        frameGroup.add(leftFrame);
+                        
+                        // Right frame piece
+                        const rightFrame = new THREE.Mesh(
+                            new THREE.BoxGeometry(frameThickness, frameHeight, frameDepth),
+                            frameMaterial
+                        );
+                        rightFrame.position.x = frameWidth / 2 + frameThickness / 2;
+                        frameGroup.add(rightFrame);
+                        
+                        // Create picture plane with image texture (using the already loaded texture)
+                        const pictureGeometry = new THREE.PlaneGeometry(frameWidth, frameHeight);
+                        const pictureMaterial = new THREE.MeshLambertMaterial({ 
+                            map: pictureTexture,
+                            side: THREE.DoubleSide
+                        });
+                        const picture = new THREE.Mesh(pictureGeometry, pictureMaterial);
+                        picture.position.z = frameDepth / 2 + 0.001; // Slightly in front of frame
+                        frameGroup.add(picture);
+                        
+                        // Calculate random offsets for frame position with 30% margin on all sides
+                        // Wall center is at (0, 0), wall extends from -wallWidth/2 to +wallWidth/2
+                        // Frame edges must be at least 30% of wall size away from wall edges
+                        const margin = 0.3;
+                        const frameTotalWidth = frameWidth + frameThickness * 2;
+                        const frameTotalHeight = frameHeight + frameThickness * 2;
+                        
+                        // Calculate allowed range for frame center X position
+                        const minX = -wallWidth/2 + margin * wallWidth + frameTotalWidth/2;
+                        const maxX = wallWidth/2 - margin * wallWidth - frameTotalWidth/2;
+                        const randomX = maxX > minX ? minX + Math.random() * (maxX - minX) : 0;
+                        
+                        // Calculate allowed range for frame center Y position
+                        const minY = -wallHeight/2 + margin * wallHeight + frameTotalHeight/2;
+                        const maxY = wallHeight/2 - margin * wallHeight - frameTotalHeight/2;
+                        const randomY = maxY > minY ? minY + Math.random() * (maxY - minY) : 0;
+                        
+                        // Position frame group on the wall based on wall type and side
+                        let zOffset, xOffset;
+                        if (wallType === 'horizontal') {
+                            // Horizontal wall: frame should face along Z axis
+                            // 'positive' side = positive Z (south), 'negative' side = negative Z (north)
+                            zOffset = side === 'positive' 
+                                ? WALL_THICKNESS / 2 + frameDepth / 2 
+                                : -(WALL_THICKNESS / 2 + frameDepth / 2);
+                            frameGroup.position.set(randomX, randomY, zOffset);
+                            // Flip the frame 180 degrees on Y axis if on negative side so it faces the right direction
+                            if (side === 'negative') {
+                                frameGroup.rotation.y = Math.PI;
+                            }
+                        } else {
+                            // Vertical wall: frame should face along X axis
+                            // 'positive' side = positive X (east), 'negative' side = negative X (west)
+                            xOffset = side === 'positive'
+                                ? WALL_THICKNESS / 2 + frameDepth / 2
+                                : -(WALL_THICKNESS / 2 + frameDepth / 2);
+                            frameGroup.position.set(xOffset, randomY, randomX);
+                            // Rotate to face the correct direction
+                            if (side === 'positive') {
+                                // Face positive X (east)
+                                frameGroup.rotation.y = Math.PI / 2;
+                            } else {
+                                // Face negative X (west) - rotate 180 degrees more than positive side
+                                frameGroup.rotation.y = -Math.PI / 2;
+                            }
+                        }
+                        
+                        // Create title plate below the frame
+                        if (title) {
+                            // Get text texture and dimensions
+                            const textData = createTextTexture(title);
+                            const plateWidth = textData.width;
+                            const plateHeight = textData.height;
+                            
+                            // Create plate geometry with exact text dimensions
+                            const plateGeometry = new THREE.PlaneGeometry(plateWidth, plateHeight);
+                            const plateMaterial = new THREE.MeshLambertMaterial({ 
+                                map: textData.texture,
+                                transparent: true,
+                                side: THREE.DoubleSide
+                            });
+                            const plate = new THREE.Mesh(plateGeometry, plateMaterial);
+                            
+                            // Position plate below the frame (in local coordinates relative to frameGroup)
+                            // Position it at the same depth as the frame so it's flush with the wall
+                            plate.position.set(0, -frameHeight / 2 - frameThickness - plateHeight / 2, 0);
+                            
+                            frameGroup.add(plate);
+                        }
+                        
+                        // Store painting positions for viewing
+                        if (wallKey) {
+                            const wallWorldY = wall.position.y;
+                            const paintingCenterY = wallWorldY + randomY;
+                            // Plate is positioned at -frameHeight/2 - frameThickness - plateHeight/2 relative to frame center
+                            // Use approximate plate height if title exists
+                            const plateOffsetY = title ? (-frameHeight / 2 - frameThickness - 0.05) : 0;
+                            const plateY = wallWorldY + randomY + plateOffsetY;
+                            
+                            paintingPositions.set(`${wallKey}-${side}`, {
+                                centerY: paintingCenterY,
+                                plateY: plateY
+                            });
+                        }
                     }
                     
                     // Add frame group to wall
@@ -993,21 +1073,6 @@ async function createMaze(wallData) {
                     
                     // Store frame group reference for potential replacement later
                     frameGroups.set(frameKey, { frameGroup, wall });
-                    
-                    // Store painting positions for viewing
-                    if (wallKey) {
-                        const wallWorldY = wall.position.y;
-                        const paintingCenterY = wallWorldY + randomY;
-                        // Plate is positioned at -frameHeight/2 - frameThickness - plateHeight/2 relative to frame center
-                        // Use approximate plate height if title exists
-                        const plateOffsetY = title ? (-frameHeight / 2 - frameThickness - 0.05) : 0;
-                        const plateY = wallWorldY + randomY + plateOffsetY;
-                        
-                        paintingPositions.set(`${wallKey}-${side}`, {
-                            centerY: paintingCenterY,
-                            plateY: plateY
-                        });
-                    }
                     
                     resolve();
                 },
@@ -2820,6 +2885,13 @@ function updateStatsDisplay() {
                     <option value="alley" ${sceneMode === 'alley' ? 'selected' : ''}>Endless Alley</option>
                 </select>
             </div>
+            <div style="margin-bottom: 8px; margin-top: 8px;">
+                <div style="margin-bottom: 3px;">Textures:</div>
+                <select id="texture-style-select" style="width: 100%; padding: 3px; background: #333; color: #fff; border: 1px solid #666;">
+                    <option value="w95" ${textureStyle === 'w95' ? 'selected' : ''}>W95</option>
+                    <option value="entirewall" ${textureStyle === 'entirewall' ? 'selected' : ''}>Entire Wall</option>
+                </select>
+            </div>
             <hr style="border-color: #666; margin: 10px 0;">
             <div style="font-weight: bold; margin-bottom: 5px;">=== Options ===</div>
             <div style="margin-bottom: 8px;">
@@ -2864,6 +2936,7 @@ function updateStatsDisplay() {
         // Attach event handlers
         const closeBtn = statsDiv.querySelector('#close-menu-btn');
         const sceneModeSelect = statsDiv.querySelector('#scene-mode-select');
+        const textureStyleSelect = statsDiv.querySelector('#texture-style-select');
         const autoModeCheckbox = statsDiv.querySelector('#auto-mode-checkbox');
         const minimapCheckbox = statsDiv.querySelector('#minimap-checkbox');
         const collisionsCheckbox = statsDiv.querySelector('#collisions-checkbox');
@@ -2881,6 +2954,12 @@ function updateStatsDisplay() {
         
         sceneModeSelect.addEventListener('change', (e) => {
             sceneMode = e.target.value;
+            regenerateScene();
+        });
+        
+        textureStyleSelect.addEventListener('change', (e) => {
+            textureStyle = e.target.value;
+            // Regenerate scene since floor, ceiling, and wall materials change
             regenerateScene();
         });
         
