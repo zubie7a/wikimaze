@@ -1928,6 +1928,17 @@ function drawMinimap() {
         }
     }
     
+    // Draw target cell if in auto mode
+    if (autoMode && targetCell) {
+        minimapCtx.fillStyle = '#8B0000'; // Dark red
+        minimapCtx.fillRect(
+            targetCell.x * cellSize,
+            targetCell.z * cellSize,
+            cellSize,
+            cellSize
+        );
+    }
+    
     // Draw player position
     const gridPos = worldToGrid(playerPosition.x, playerPosition.z);
     const playerX = gridPos.x * cellSize + cellSize / 2;
