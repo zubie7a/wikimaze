@@ -25,6 +25,7 @@ let wikipediaWalls = new Set(); // Track which walls have Wikipedia textures (fo
 let globalWallMeshMap = null; // Global reference to wall mesh map for loading paintings on demand
 let globalCreateFramedPicture = null; // Global reference to createFramedPicture function
 let paintingPositions = new Map(); // Store painting world positions (key: "wallKey-side", value: {centerY, plateY})
+let frameGroups = new Map(); // Store frame groups per wall (key: "wallKey-side", value: {frameGroup, wall})
 
 // Player position and rotation
 let playerPosition = { x: 0, z: 0 };
@@ -602,6 +603,27 @@ async function createMaze(wallData) {
                     const frameThickness = 0.1;
                     const frameDepth = 0.05;
                     
+                    // Check for and remove any existing frame on this wall/side
+                    const frameKey = `${wallKey}-${side}`;
+                    if (frameGroups.has(frameKey)) {
+                        const existing = frameGroups.get(frameKey);
+                        if (existing.wall && existing.frameGroup) {
+                            existing.wall.remove(existing.frameGroup);
+                            // Dispose of existing frame's resources
+                            existing.frameGroup.traverse((child) => {
+                                if (child.geometry) child.geometry.dispose();
+                                if (child.material) {
+                                    if (Array.isArray(child.material)) {
+                                        child.material.forEach(m => m.dispose());
+                                    } else {
+                                        child.material.dispose();
+                                    }
+                                }
+                            });
+                        }
+                        frameGroups.delete(frameKey);
+                    }
+                    
                     // Create frame group
                     const frameGroup = new THREE.Group();
                     
@@ -723,6 +745,9 @@ async function createMaze(wallData) {
                     
                     // Add frame group to wall
                     wall.add(frameGroup);
+                    
+                    // Store frame group reference for potential replacement later
+                    frameGroups.set(frameKey, { frameGroup, wall });
                     
                     // Store painting positions for viewing
                     if (wallKey) {
@@ -909,6 +934,7 @@ async function regenerateScene() {
     // Clear painting tracking
     wikipediaWalls.clear();
     paintingPositions.clear();
+    frameGroups.clear();
     
     // Reset topic search cache
     topicSearchResults = [];
@@ -1971,6 +1997,7 @@ function clearAllPaintings() {
     // Clear tracking data
     wikipediaWalls.clear();
     paintingPositions.clear();
+    frameGroups.clear();
 }
 
 // Reload all paintings with current settings
