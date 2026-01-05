@@ -781,45 +781,86 @@ async function createMaze(wallData) {
     globalCreateFramedPicture = createFramedPicture;
 
     // Asynchronously load Wikipedia images and create framed pictures
-    // Sort walls by distance from player starting position
+    // Use BFS from initial position to order wall loading
     (async () => {
-        const playerStartX = (-MAZE_SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
-        const playerStartZ = (-MAZE_SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
+        // BFS to get cells in exploration order
+        const startCell = { x: 0, z: 0 };
+        const visitedBFS = new Set();
+        const queue = [startCell];
+        const cellOrder = [];
         
-        // Calculate distance for each wall and sort
-        // Only process walls that actually exist (were created and are in wallMeshMap)
-        // This ensures we don't try to fetch images for pruned walls
-        const wallsWithDistance = Array.from(wallMeshMap.keys()).map(wallKey => {
-            let wallX, wallZ;
+        visitedBFS.add(`${startCell.x},${startCell.z}`);
+        
+        while (queue.length > 0) {
+            const cell = queue.shift();
+            cellOrder.push(cell);
             
-            // Parse wall key to get position
-            const [type, xStr, yStr] = wallKey.split('-');
-            const x = parseInt(xStr);
-            const y = parseInt(yStr);
+            // Get neighbors (cells connected without walls)
+            const neighbors = [
+                { x: cell.x + 1, z: cell.z }, // East
+                { x: cell.x - 1, z: cell.z }, // West
+                { x: cell.x, z: cell.z + 1 }, // South
+                { x: cell.x, z: cell.z - 1 }  // North
+            ];
             
-            if (type === 'horizontal') {
-                wallX = (x - MAZE_SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
-                wallZ = (y - MAZE_SIZE / 2) * CELL_SIZE;
-            } else { // vertical
-                wallX = (x - MAZE_SIZE / 2) * CELL_SIZE;
-                wallZ = (y - MAZE_SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
+            for (const neighbor of neighbors) {
+                if (neighbor.x < 0 || neighbor.x >= MAZE_SIZE || 
+                    neighbor.z < 0 || neighbor.z >= MAZE_SIZE) continue;
+                
+                const key = `${neighbor.x},${neighbor.z}`;
+                if (visitedBFS.has(key)) continue;
+                
+                // Check if connected (no wall between)
+                let connected = false;
+                if (neighbor.x === cell.x + 1) {
+                    // Moving east - check vertical wall at x+1
+                    connected = !verticalWalls[cell.z][cell.x + 1];
+                } else if (neighbor.x === cell.x - 1) {
+                    // Moving west - check vertical wall at x
+                    connected = !verticalWalls[cell.z][cell.x];
+                } else if (neighbor.z === cell.z + 1) {
+                    // Moving south - check horizontal wall at z+1
+                    connected = !horizontalWalls[cell.z + 1][cell.x];
+                } else if (neighbor.z === cell.z - 1) {
+                    // Moving north - check horizontal wall at z
+                    connected = !horizontalWalls[cell.z][cell.x];
+                }
+                
+                if (connected) {
+                    visitedBFS.add(key);
+                    queue.push(neighbor);
+                }
             }
-            
-            const dx = wallX - playerStartX;
-            const dz = wallZ - playerStartZ;
-            const distance = Math.sqrt(dx * dx + dz * dz);
-            
-            return { wallKey, distance, type };
-        });
+        }
         
-        // Sort by distance (closest first)
-        wallsWithDistance.sort((a, b) => a.distance - b.distance);
+        // Build ordered wall list based on BFS cell order
+        // For each cell, add walls that face into that cell
+        const processedWalls = new Set();
+        const wallsInOrder = [];
+        
+        for (const cell of cellOrder) {
+            // Get walls surrounding this cell
+            const cellWalls = [
+                { key: `horizontal-${cell.x}-${cell.z}`, type: 'horizontal' },     // Top wall
+                { key: `horizontal-${cell.x}-${cell.z + 1}`, type: 'horizontal' }, // Bottom wall
+                { key: `vertical-${cell.x}-${cell.z}`, type: 'vertical' },         // Left wall
+                { key: `vertical-${cell.x + 1}-${cell.z}`, type: 'vertical' }      // Right wall
+            ];
+            
+            for (const wall of cellWalls) {
+                // Only add if wall exists in wallMeshMap and hasn't been processed
+                if (wallMeshMap.has(wall.key) && !processedWalls.has(wall.key)) {
+                    processedWalls.add(wall.key);
+                    wallsInOrder.push({ wallKey: wall.key, type: wall.type });
+                }
+            }
+        }
         
         // Calculate total images to load and set loading state
         isLoadingImages = true;
         loadedImagesCount = 0;
         totalImagesToLoad = 0;
-        for (const { wallKey } of wallsWithDistance) {
+        for (const { wallKey } of wallsInOrder) {
             const [wallType, xStr, yStr] = wallKey.split('-');
             const x = parseInt(xStr);
             const y = parseInt(yStr);
@@ -829,8 +870,8 @@ async function createMaze(wallData) {
             totalImagesToLoad += isEdgeWall ? 1 : 2;
         }
         
-        // Load Wikipedia images in order of distance from player
-        for (const { wallKey, type } of wallsWithDistance) {
+        // Load Wikipedia images in BFS order from player start
+        for (const { wallKey, type } of wallsInOrder) {
             // Check for cancellation
             if (cancelLoading) {
                 console.log('Initial loading cancelled');
