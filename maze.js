@@ -2215,9 +2215,18 @@ function updateStatsDisplay() {
         randomCheckbox.addEventListener('change', (e) => {
             useRandomImages = e.target.checked;
             topicControls.style.display = useRandomImages ? 'none' : 'block';
-            // Reload images when switching back to random mode
-            if (useRandomImages && !isLoadingImages) {
+            if (useRandomImages) {
+                // Reload images when switching back to random mode
                 reloadAllPaintings();
+            } else {
+                // Switching to topic mode - clear current images
+                cancelLoading = true;
+                clearAllPaintings();
+                // If there's already a topic, start loading it
+                if (searchTopic && searchTopic.trim() !== '') {
+                    reloadAllPaintings();
+                }
+                // Otherwise wait for user to enter a topic and press Load
             }
         });
         
