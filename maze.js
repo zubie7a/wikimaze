@@ -371,6 +371,52 @@ async function createMaze(wallData) {
     ceiling.position.y = WALL_HEIGHT - 0.5;
     group.add(ceiling);
     
+    // In alley mode, create end darkening planes (not moving fog)
+    if (sceneMode === 'alley') {
+        const alleyZ = Math.floor(MAZE_SIZE / 2);
+        const alleyWorldZ = (alleyZ - MAZE_SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
+        const halfAlleyLength = (MAZE_SIZE / 2) * CELL_SIZE;
+        
+        window.alleyFogPlanes = null; // Not using moving planes
+        window.alleyWorldZ = alleyWorldZ;
+        
+        // Create gradient darkness at each end of the alley (fixed position)
+        const numEndLayers = 20;
+        const endZoneLength = CELL_SIZE * 3; // Last 3 cells get progressively darker
+        
+        for (let i = 0; i < numEndLayers; i++) {
+            const t = i / (numEndLayers - 1); // 0 to 1
+            const distFromEnd = t * endZoneLength;
+            const opacity = 0.05 + (1 - t) * 0.15; // More opaque closer to the end
+            
+            const fogMaterial = new THREE.MeshBasicMaterial({
+                color: 0x000000,
+                transparent: true,
+                opacity: opacity,
+                side: THREE.DoubleSide,
+                depthWrite: false
+            });
+            
+            // West end darkening
+            const westDark = new THREE.Mesh(
+                new THREE.PlaneGeometry(CELL_SIZE * 2, WALL_HEIGHT + 2),
+                fogMaterial.clone()
+            );
+            westDark.rotation.y = Math.PI / 2;
+            westDark.position.set(-halfAlleyLength + distFromEnd, WALL_HEIGHT / 2 - 0.5, alleyWorldZ);
+            group.add(westDark);
+            
+            // East end darkening
+            const eastDark = new THREE.Mesh(
+                new THREE.PlaneGeometry(CELL_SIZE * 2, WALL_HEIGHT + 2),
+                fogMaterial.clone()
+            );
+            eastDark.rotation.y = Math.PI / 2;
+            eastDark.position.set(halfAlleyLength - distFromEnd, WALL_HEIGHT / 2 - 0.5, alleyWorldZ);
+            group.add(eastDark);
+        }
+    }
+    
     // Texture loader for Wikipedia images
     const textureLoader = new THREE.TextureLoader();
     
@@ -1025,6 +1071,10 @@ async function regenerateScene() {
     // Cancel any ongoing loading
     cancelLoading = true;
     
+    // Clear alley fog planes reference
+    window.alleyFogPlanes = null;
+    window.alleyWorldZ = null;
+    
     // Wait a moment for current loading to stop
     await new Promise(resolve => setTimeout(resolve, 100));
     
@@ -1062,6 +1112,15 @@ async function regenerateScene() {
     currentMazeGroup = await createMaze(mazeData);
     scene.add(currentMazeGroup);
     
+    // Update scene background based on mode
+    if (sceneMode === 'alley') {
+        scene.background = new THREE.Color(0x000000); // Dark for alley
+        scene.fog = new THREE.Fog(0x000000, CELL_SIZE * 0.5, CELL_SIZE * 4); // Fog from 0.5 to 4 cells
+    } else {
+        scene.background = new THREE.Color(0x87CEEB); // Sky blue
+        scene.fog = null;
+    }
+    
     // Reset player position
     if (sceneMode === 'alley') {
         // Start in the middle of the alley
@@ -1095,7 +1154,15 @@ async function regenerateScene() {
 function init() {
     // Scene
     scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x87CEEB); // Sky blue
+    
+    // Set up scene background based on mode
+    if (sceneMode === 'alley') {
+        scene.background = new THREE.Color(0x000000); // Dark for alley
+        scene.fog = new THREE.Fog(0x000000, CELL_SIZE * 0.5, CELL_SIZE * 4); // Fog from 0.5 to 4 cells
+    } else {
+        scene.background = new THREE.Color(0x87CEEB); // Sky blue
+        scene.fog = null;
+    }
     
     // Camera
     camera = new THREE.PerspectiveCamera(
@@ -2236,11 +2303,18 @@ function drawMinimap() {
 function animate() {
     requestAnimationFrame(animate);
     updateMovement();
+    updateAlleyFog();
     drawMinimap();
     if (statsVisible && statsDiv) {
         updateStatsDisplay();
     }
     renderer.render(scene, camera);
+}
+
+// Update alley fog (placeholder - fog is now handled by Three.js fog + fixed end planes)
+function updateAlleyFog() {
+    // Three.js fog handles the consistent distance-based fog
+    // Fixed planes at the ends handle the extra darkness near entrances/exits
 }
 
 // Clear all paintings from walls
