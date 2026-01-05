@@ -882,7 +882,7 @@ function init() {
     statsDiv.id = 'stats';
     statsDiv.style.position = 'absolute';
     statsDiv.style.top = '10px';
-    statsDiv.style.right = '10px';
+    statsDiv.style.left = '10px';
     statsDiv.style.color = '#fff';
     statsDiv.style.fontSize = '14px';
     statsDiv.style.zIndex = '100';
@@ -892,6 +892,34 @@ function init() {
     statsDiv.style.fontFamily = 'monospace';
     statsDiv.style.display = 'none';
     document.body.appendChild(statsDiv);
+    
+    // Create menu toggle icon (shown when stats are hidden)
+    const menuToggle = document.createElement('div');
+    menuToggle.id = 'menu-toggle';
+    menuToggle.style.position = 'absolute';
+    menuToggle.style.top = '10px';
+    menuToggle.style.left = '10px';
+    menuToggle.style.width = '32px';
+    menuToggle.style.height = '32px';
+    menuToggle.style.background = 'rgba(0, 0, 0, 0.7)';
+    menuToggle.style.border = '2px solid #fff';
+    menuToggle.style.cursor = 'pointer';
+    menuToggle.style.zIndex = '100';
+    menuToggle.style.display = 'block';
+    menuToggle.style.textAlign = 'center';
+    menuToggle.style.lineHeight = '28px';
+    menuToggle.style.fontSize = '18px';
+    menuToggle.style.color = '#fff';
+    menuToggle.innerHTML = '☰';
+    menuToggle.title = 'Show menu (T)';
+    menuToggle.addEventListener('click', () => {
+        statsVisible = true;
+        statsDiv.style.display = 'block';
+        menuToggle.style.display = 'none';
+        statsDiv.innerHTML = '';
+        updateStatsDisplay();
+    });
+    document.body.appendChild(menuToggle);
     
     // Event listeners
     window.addEventListener('keydown', onKeyDown);
@@ -962,13 +990,16 @@ function onKeyDown(event) {
         case 'T':
             // Toggle stats display
             statsVisible = !statsVisible;
+            const menuToggle = document.getElementById('menu-toggle');
             if (statsDiv) {
                 if (statsVisible) {
                     statsDiv.style.display = 'block';
+                    if (menuToggle) menuToggle.style.display = 'none';
                     statsDiv.innerHTML = ''; // Clear to force rebuild with fresh controls
                     updateStatsDisplay();
                 } else {
                     statsDiv.style.display = 'none';
+                    if (menuToggle) menuToggle.style.display = 'block';
                 }
             }
             break;
@@ -1940,8 +1971,23 @@ function updateStatsDisplay() {
     let statsContent = statsDiv.querySelector('#stats-content');
     if (!statsContent) {
         statsDiv.innerHTML = `
-            <div style="font-weight: bold; margin-bottom: 5px;">=== Stats ===</div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                <span style="font-weight: bold;">=== Menu ===</span>
+                <span id="close-menu-btn" style="cursor: pointer; font-size: 16px;" title="Close menu">✕</span>
+            </div>
             <div id="stats-content"></div>
+            <hr style="border-color: #666; margin: 10px 0;">
+            <div style="font-weight: bold; margin-bottom: 5px;">=== Options ===</div>
+            <div style="margin-bottom: 8px;">
+                <label style="cursor: pointer; display: block; margin-bottom: 5px;">
+                    <input type="checkbox" id="auto-mode-checkbox" ${autoMode ? 'checked' : ''}>
+                    Auto movement
+                </label>
+                <label style="cursor: pointer; display: block;">
+                    <input type="checkbox" id="minimap-checkbox" ${minimapVisible ? 'checked' : ''}>
+                    Show minimap
+                </label>
+            </div>
             <hr style="border-color: #666; margin: 10px 0;">
             <div style="font-weight: bold; margin-bottom: 5px;">=== Images ===</div>
             <div style="margin-bottom: 8px;">
@@ -1965,12 +2011,48 @@ function updateStatsDisplay() {
         `;
         
         // Attach event handlers
-        const checkbox = statsDiv.querySelector('#random-images-checkbox');
+        const closeBtn = statsDiv.querySelector('#close-menu-btn');
+        const autoModeCheckbox = statsDiv.querySelector('#auto-mode-checkbox');
+        const minimapCheckbox = statsDiv.querySelector('#minimap-checkbox');
+        const randomCheckbox = statsDiv.querySelector('#random-images-checkbox');
         const topicControls = statsDiv.querySelector('#topic-controls');
         const topicInput = statsDiv.querySelector('#topic-input');
         const loadBtn = statsDiv.querySelector('#load-topic-btn');
         
-        checkbox.addEventListener('change', (e) => {
+        closeBtn.addEventListener('click', () => {
+            statsVisible = false;
+            statsDiv.style.display = 'none';
+            const menuToggle = document.getElementById('menu-toggle');
+            if (menuToggle) menuToggle.style.display = 'block';
+        });
+        
+        autoModeCheckbox.addEventListener('change', (e) => {
+            if (e.target.checked) {
+                // Enable auto mode (same as Z key)
+                autoMode = true;
+                isTurning = false;
+                targetCell = null;
+                navigationPath = [];
+                currentPathIndex = 0;
+                isViewingPainting = false;
+                viewingPaintingTimer = 0;
+                viewingPhase = 0;
+                paintingLookDirection = null;
+                originalDirection = null;
+                currentPitch = 0;
+            } else {
+                autoMode = false;
+            }
+        });
+        
+        minimapCheckbox.addEventListener('change', (e) => {
+            minimapVisible = e.target.checked;
+            if (minimapCanvas) {
+                minimapCanvas.style.display = minimapVisible ? 'block' : 'none';
+            }
+        });
+        
+        randomCheckbox.addEventListener('change', (e) => {
             useRandomImages = e.target.checked;
             topicControls.style.display = useRandomImages ? 'none' : 'block';
         });
@@ -2001,14 +2083,22 @@ function updateStatsDisplay() {
     
     // Update only the dynamic stats content
     statsContent.innerHTML = `
-        <div>World Position: (${playerPosition.x.toFixed(2)}, ${playerPosition.z.toFixed(2)})</div>
-        <div>Cell Position: (${currentCell.x}, ${currentCell.z})</div>
-        <div>Target Cell: ${targetCell ? `(${targetCell.x}, ${targetCell.z})` : 'None'}</div>
-        <div>Path Length: ${navigationPath.length > 0 ? navigationPath.length - 1 : 0}</div>
-        <div>Viewing Painting: ${isViewingPainting ? `Phase ${viewingPhase + 1}/3` : 'NO'}</div>
-        <div>Auto Mode: ${autoMode ? 'ON' : 'OFF'}</div>
-        <div>Loading: ${isLoadingImages ? 'YES' : 'NO'}</div>
+        <div>Position: (${playerPosition.x.toFixed(1)}, ${playerPosition.z.toFixed(1)})</div>
+        <div>Cell: (${currentCell.x}, ${currentCell.z})</div>
+        <div>Target: ${targetCell ? `(${targetCell.x}, ${targetCell.z})` : '-'}</div>
+        <div>Loading: ${isLoadingImages ? 'Yes' : 'No'}</div>
     `;
+    
+    // Update checkbox states
+    const autoModeCheckbox = statsDiv.querySelector('#auto-mode-checkbox');
+    if (autoModeCheckbox && autoModeCheckbox.checked !== autoMode) {
+        autoModeCheckbox.checked = autoMode;
+    }
+    
+    const minimapCheckbox = statsDiv.querySelector('#minimap-checkbox');
+    if (minimapCheckbox && minimapCheckbox.checked !== minimapVisible) {
+        minimapCheckbox.checked = minimapVisible;
+    }
     
     // Update load button state
     const loadBtn = statsDiv.querySelector('#load-topic-btn');
