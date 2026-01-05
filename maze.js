@@ -282,7 +282,7 @@ async function fetchTopicWikipediaImage(topic) {
         try {
             // Search for articles related to the topic
             const searchResponse = await fetch(
-                `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(topic)}&srlimit=50&format=json&origin=*`
+                `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(topic)}&srlimit=200&format=json&origin=*`
             );
             const searchData = await searchResponse.json();
             
@@ -292,17 +292,26 @@ async function fetchTopicWikipediaImage(topic) {
                 return null;
             }
             
-            // Get thumbnails for the search results
-            const pageIds = searchResults.map(r => r.pageid).join('|');
-            const imagesResponse = await fetch(
-                `https://en.wikipedia.org/w/api.php?action=query&pageids=${pageIds}&prop=pageimages&pithumbsize=400&format=json&origin=*`
-            );
-            const imagesData = await imagesResponse.json();
+            // Get thumbnails for the search results (batch in groups of 50 due to API limits)
+            const allPages = [];
+            const batchSize = 50;
+            for (let i = 0; i < searchResults.length; i += batchSize) {
+                const batch = searchResults.slice(i, i + batchSize);
+                const pageIds = batch.map(r => r.pageid).join('|');
+                const imagesResponse = await fetch(
+                    `https://en.wikipedia.org/w/api.php?action=query&pageids=${pageIds}&prop=pageimages&pithumbsize=400&format=json&origin=*`
+                );
+                const imagesData = await imagesResponse.json();
+                
+                const pages = imagesData.query?.pages;
+                if (pages) {
+                    allPages.push(...Object.values(pages));
+                }
+            }
             
-            const pages = imagesData.query?.pages;
-            if (pages) {
+            if (allPages.length > 0) {
                 // Filter to only pages with thumbnails and cache them
-                topicSearchResults = Object.values(pages)
+                topicSearchResults = allPages
                     .filter(page => page.thumbnail)
                     .map(page => ({
                         imageUrl: page.thumbnail.source,
