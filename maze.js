@@ -915,6 +915,9 @@ async function regenerateScene() {
     // Cancel any ongoing loading
     cancelLoading = true;
     
+    // Wait a moment for current loading to stop
+    await new Promise(resolve => setTimeout(resolve, 100));
+    
     // Remove old maze from scene
     if (currentMazeGroup && scene) {
         scene.remove(currentMazeGroup);
@@ -940,6 +943,9 @@ async function regenerateScene() {
     topicSearchResults = [];
     topicSearchIndex = 0;
     topicResultsFetched = false;
+    
+    // Reset cancel flag before generating new maze
+    cancelLoading = false;
     
     // Generate and add new maze
     mazeData = generateMaze(MAZE_SIZE);
