@@ -4,8 +4,6 @@
 class GalleryScene extends SceneController {
     constructor() {
         super('gallery');
-        this.numSides = 20; // 20-sided polygon
-        this.radius = 10; // Distance from center to walls
         this.wallHeight = 3; // Same as WALL_HEIGHT in maze.js
         this.galleryWalls = []; // Store wall meshes for painting loading
     }
@@ -20,7 +18,17 @@ class GalleryScene extends SceneController {
 
     // Create the polygon room with walls
     createContent(group, textureStyle, size) {
-        console.log('Gallery createContent called', { textureStyle, size, numSides: this.numSides });
+        // Random gallery configurations - select one each time gallery is created
+        const configs = [
+            { numSides: 20, radius: 20 },
+            { numSides: 10, radius: 10 },
+            { numSides: 8, radius: 8 }
+        ];
+        const randomConfig = configs[Math.floor(Math.random() * configs.length)];
+        this.numSides = randomConfig.numSides;
+        this.radius = randomConfig.radius;
+        
+        console.log('Gallery createContent called', { textureStyle, size, numSides: this.numSides, radius: this.radius });
         this.galleryWalls = [];
 
         const angleStep = (Math.PI * 2) / this.numSides;
