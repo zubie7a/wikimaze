@@ -153,88 +153,89 @@ async function fetchRandomWikipediaImage() {
 }
 
 // Fetch Wikipedia images related to a topic
-let topicSearchResults = []; // Cache of search results for the current topic
-let topicSearchIndex = 0; // Current index in the search results
+let topicSearchResults = []; // Cache of search results (URLs and titles)
+let topicUsedIndices = new Set(); // Track which images have been used (avoid repeats)
 let topicResultsFetched = false; // Whether we've already fetched results for this topic
 
 async function fetchTopicWikipediaImage(topic) {
-    // If we have cached results, use them (cycling through if needed)
-    if (topicSearchResults.length > 0 && topicResultsFetched) {
-        // Cycle through results if we've used them all
-        if (topicSearchIndex >= topicSearchResults.length) {
-            topicSearchIndex = 0;
-            // Re-shuffle for variety when cycling
-            for (let i = topicSearchResults.length - 1; i > 0; i--) {
-                const j = Math.floor(Math.random() * (i + 1));
-                [topicSearchResults[i], topicSearchResults[j]] = [topicSearchResults[j], topicSearchResults[i]];
-            }
-        }
-        const result = topicSearchResults[topicSearchIndex];
-        topicSearchIndex++;
-        return result;
-    }
-
-    // Fetch new results (only once per topic)
-    const maxAttempts = 3;
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-        try {
-            // Search for articles related to the topic
-            const searchResponse = await fetch(
-                `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(topic)}&srlimit=200&format=json&origin=*`
-            );
-            const searchData = await searchResponse.json();
-
-            const searchResults = searchData.query?.search;
-            if (!searchResults || searchResults.length === 0) {
-                console.log('No search results found for topic:', topic);
-                return null;
-            }
-
-            // Get thumbnails for the search results (batch in groups of 50 due to API limits)
-            const allPages = [];
-            const batchSize = 50;
-            for (let i = 0; i < searchResults.length; i += batchSize) {
-                const batch = searchResults.slice(i, i + batchSize);
-                const pageIds = batch.map(r => r.pageid).join('|');
-                const imagesResponse = await fetch(
-                    `https://en.wikipedia.org/w/api.php?action=query&pageids=${pageIds}&prop=pageimages&pithumbsize=400&format=json&origin=*`
+    // If we haven't fetched results yet, fetch them
+    if (!topicResultsFetched) {
+        const maxAttempts = 3;
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+            try {
+                // Search for 500 articles related to the topic
+                const searchResponse = await fetch(
+                    `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(topic)}&srlimit=2000&format=json&origin=*`
                 );
-                const imagesData = await imagesResponse.json();
+                const searchData = await searchResponse.json();
 
-                const pages = imagesData.query?.pages;
-                if (pages) {
-                    allPages.push(...Object.values(pages));
+                const searchResults = searchData.query?.search;
+                if (!searchResults || searchResults.length === 0) {
+                    console.log('No search results found for topic:', topic);
+                    return null;
                 }
+
+                // Get thumbnails for the search results (batch in groups of 50 due to API limits)
+                const allPages = [];
+                const batchSize = 50;
+                for (let i = 0; i < searchResults.length; i += batchSize) {
+                    const batch = searchResults.slice(i, i + batchSize);
+                    const pageIds = batch.map(r => r.pageid).join('|');
+                    const imagesResponse = await fetch(
+                        `https://en.wikipedia.org/w/api.php?action=query&pageids=${pageIds}&prop=pageimages&pithumbsize=400&format=json&origin=*`
+                    );
+                    const imagesData = await imagesResponse.json();
+
+                    const pages = imagesData.query?.pages;
+                    if (pages) {
+                        allPages.push(...Object.values(pages));
+                    }
+                }
+
+                if (allPages.length > 0) {
+                    // Filter to only pages with thumbnails and cache them
+                    topicSearchResults = allPages
+                        .filter(page => page.thumbnail)
+                        .map(page => ({
+                            imageUrl: page.thumbnail.source,
+                            title: page.title
+                        }));
+
+                    topicUsedIndices = new Set(); // Reset used indices
+                    topicResultsFetched = true;
+                    console.log(`Loaded ${topicSearchResults.length} topic images for random selection`);
+                    break; // Success, exit retry loop
+                }
+            } catch (error) {
+                console.log('Error fetching topic Wikipedia images, retrying...', error);
             }
-
-            if (allPages.length > 0) {
-                // Filter to only pages with thumbnails and cache them
-                topicSearchResults = allPages
-                    .filter(page => page.thumbnail)
-                    .map(page => ({
-                        imageUrl: page.thumbnail.source,
-                        title: page.title
-                    }));
-
-                // Shuffle the results for variety
-                for (let i = topicSearchResults.length - 1; i > 0; i--) {
-                    const j = Math.floor(Math.random() * (i + 1));
-                    [topicSearchResults[i], topicSearchResults[j]] = [topicSearchResults[j], topicSearchResults[i]];
-                }
-
-                topicSearchIndex = 0;
-                topicResultsFetched = true;
-
-                if (topicSearchResults.length > 0) {
-                    const result = topicSearchResults[topicSearchIndex];
-                    topicSearchIndex++;
-                    return result;
-                }
-            }
-        } catch (error) {
-            console.log('Error fetching topic Wikipedia image, retrying...', error);
         }
     }
+
+    // If we have results, pick a random unused one
+    if (topicSearchResults.length > 0) {
+        // Check if all images have been used
+        if (topicUsedIndices.size >= topicSearchResults.length) {
+            // Reset and allow reuse (all images have been shown)
+            console.log('All topic images used, resetting pool');
+            topicUsedIndices = new Set();
+        }
+
+        // Pick a random unused index
+        let randomIndex;
+        let attempts = 0;
+        const maxPickAttempts = topicSearchResults.length * 2; // Prevent infinite loop
+
+        do {
+            randomIndex = Math.floor(Math.random() * topicSearchResults.length);
+            attempts++;
+        } while (topicUsedIndices.has(randomIndex) && attempts < maxPickAttempts);
+
+        // Mark as used and return
+        topicUsedIndices.add(randomIndex);
+        return topicSearchResults[randomIndex];
+    }
+
     return null;
 }
 
@@ -1156,10 +1157,7 @@ async function regenerateScene() {
     paintingPositions.clear();
     frameGroups.clear();
 
-    // Reset image caches
-    topicSearchResults = [];
-    topicSearchIndex = 0;
-    topicResultsFetched = false;
+    // Reset random image cache (but NOT topic cache - that persists across rooms)
     randomImageResults = [];
     randomImageIndex = 0;
 
@@ -2725,10 +2723,7 @@ async function reloadAllPaintings() {
     isLoadingImages = true;
     cancelLoading = false;
 
-    // Reset image caches
-    topicSearchResults = [];
-    topicSearchIndex = 0;
-    topicResultsFetched = false;
+    // Reset random image cache (but NOT topic cache - that persists across rooms)
     randomImageResults = [];
     randomImageIndex = 0;
 
@@ -3104,7 +3099,14 @@ function updateStatsDisplay() {
         });
 
         topicInput.addEventListener('input', (e) => {
-            searchTopic = e.target.value;
+            const newTopic = e.target.value;
+            // Reset topic image cache if topic changed
+            if (newTopic !== searchTopic) {
+                topicSearchResults = [];
+                topicUsedIndices = new Set();
+                topicResultsFetched = false;
+            }
+            searchTopic = newTopic;
         });
 
         topicInput.addEventListener('keydown', (e) => {
