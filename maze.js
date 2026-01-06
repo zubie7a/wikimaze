@@ -49,7 +49,7 @@ let creepyEyes = []; // Array of blinking eye pairs [{leftEye, rightEye, glow, n
 
 
 // Player position and rotation
-let playerPosition = { x: 0, z: 0 };
+let playerPosition = { x: 0, z: 0, y: 1.2 };
 let playerRotation = 0;
 let lastPlayerX = 0; // Track for alley eyes visibility
 let lastStillTime = 0; // When player last stopped moving
@@ -62,7 +62,11 @@ let controls = {
     forward: false,
     backward: false,
     left: false,
-    right: false
+    right: false,
+    up: false,
+    down: false,
+    lookUp: false,
+    lookDown: false
 };
 
 // Auto mode: pathfinding-based navigation
@@ -1452,6 +1456,26 @@ function onKeyDown(event) {
                 minimapCanvas.style.display = minimapVisible ? 'block' : 'none';
             }
             break;
+        case 'o':
+        case 'O':
+            // Fly up (for testing)
+            controls.up = true;
+            break;
+        case 'l':
+        case 'L':
+            // Fly down (for testing)
+            controls.down = true;
+            break;
+        case 'i':
+        case 'I':
+            // Look up
+            controls.lookUp = true;
+            break;
+        case 'k':
+        case 'K':
+            // Look down
+            controls.lookDown = true;
+            break;
     }
 }
 
@@ -1476,6 +1500,26 @@ function onKeyUp(event) {
         case 'd':
         case 'D':
             controls.right = false;
+            break;
+        case 'o':
+        case 'O':
+            // Stop flying up
+            controls.up = false;
+            break;
+        case 'l':
+        case 'L':
+            // Stop flying down
+            controls.down = false;
+            break;
+        case 'i':
+        case 'I':
+            // Stop looking up
+            controls.lookUp = false;
+            break;
+        case 'k':
+        case 'K':
+            // Stop looking down
+            controls.lookDown = false;
             break;
     }
 }
@@ -1994,7 +2038,7 @@ function updateMovement() {
                 }
             }
 
-            camera.position.set(playerPosition.x, 1.2, playerPosition.z);
+            camera.position.set(playerPosition.x, playerPosition.y, playerPosition.z);
             camera.rotation.order = 'YXZ'; // Ensure proper rotation order
             camera.rotation.y = playerRotation;
             camera.rotation.x = currentPitch;
@@ -2296,11 +2340,32 @@ function updateMovement() {
             }
         }
 
-        // Update camera
-        camera.position.set(playerPosition.x, 1.2, playerPosition.z);
+        // Vertical movement (O/L keys for testing/flying) - works even in auto mode
+        const activeSceneAuto = getActiveScene();
+        const currentMoveSpeedAuto = activeSceneAuto.getMoveSpeed(MOVE_SPEED);
+
+        if (controls.up) {
+            playerPosition.y += currentMoveSpeedAuto;
+        }
+        if (controls.down) {
+            playerPosition.y -= currentMoveSpeedAuto;
+        }
+
+        // Look up/down (I/K keys) - inverted
+        if (controls.lookUp) {
+            currentPitch += PITCH_SPEED;
+            currentPitch = Math.min(currentPitch, Math.PI / 2); // Don't look behind
+        }
+        if (controls.lookDown) {
+            currentPitch -= PITCH_SPEED;
+            currentPitch = Math.max(currentPitch, -Math.PI / 2); // Don't look behind
+        }
+
+        // Update camera (use playerPosition.y for vertical movement)
+        camera.position.set(playerPosition.x, playerPosition.y, playerPosition.z);
         camera.rotation.order = 'YXZ';
         camera.rotation.y = playerRotation;
-        camera.rotation.x = 0; // Keep horizontal when not viewing paintings
+        camera.rotation.x = currentPitch; // Apply pitch from I/K keys
         return;
     }
 
@@ -2313,13 +2378,20 @@ function updateMovement() {
         playerRotation -= ROTATION_SPEED;
     }
 
+    // Vertical movement (O/L keys for testing/flying)
+    const activeScene = getActiveScene();
+    const currentMoveSpeed = activeScene.getMoveSpeed(MOVE_SPEED);
+
+    if (controls.up) {
+        playerPosition.y += currentMoveSpeed;
+    }
+    if (controls.down) {
+        playerPosition.y -= currentMoveSpeed;
+    }
+
     // Movement
     let moveX = 0;
     let moveZ = 0;
-
-    // Use scene-specific movement speed
-    const activeScene = getActiveScene();
-    const currentMoveSpeed = activeScene.getMoveSpeed(MOVE_SPEED);
 
     if (controls.forward) {
         moveX -= Math.sin(playerRotation) * currentMoveSpeed;
@@ -2372,11 +2444,21 @@ function updateMovement() {
         }
     }
 
-    // Update camera
-    camera.position.set(playerPosition.x, 1.2, playerPosition.z);
+    // Look up/down (I/K keys) - manual mode, inverted
+    if (controls.lookUp) {
+        currentPitch += PITCH_SPEED;
+        currentPitch = Math.min(currentPitch, Math.PI / 2); // Don't look behind
+    }
+    if (controls.lookDown) {
+        currentPitch -= PITCH_SPEED;
+        currentPitch = Math.max(currentPitch, -Math.PI / 2); // Don't look behind
+    }
+
+    // Update camera (use playerPosition.y for vertical movement)
+    camera.position.set(playerPosition.x, playerPosition.y, playerPosition.z);
     camera.rotation.order = 'YXZ';
     camera.rotation.y = playerRotation;
-    camera.rotation.x = 0; // Keep horizontal in manual mode
+    camera.rotation.x = currentPitch; // Apply pitch from I/K keys
 }
 
 // Draw minimap

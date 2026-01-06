@@ -60,6 +60,16 @@ class CathedralScene extends SceneController {
         window.cathedralRoomWidth = this.roomWidth;
 
         // Load paintings on cathedral walls
+        // Initialize progress tracking (global variables from maze.js)
+        try {
+            loadedImagesCount = 0;
+            totalImagesToLoad = this.gridWidth * this.gridHeight * 4; // 4 walls
+        } catch (e) {
+            console.log('Global loading counters not available yet');
+        }
+
+        // Start the loading process
+        console.log('Starting cathedral painting load...');
         this.loadCathedralPaintings(group, textureStyle);
     }
 
@@ -110,6 +120,7 @@ class CathedralScene extends SceneController {
     }
 
     async loadCathedralPaintings(group, textureStyle) {
+        console.log('loadCathedralPaintings called, wallSegments:', this.wallSegments.length);
         const textureLoader = new THREE.TextureLoader();
 
         // Initialize painting groups tracking
@@ -117,99 +128,153 @@ class CathedralScene extends SceneController {
             window.cathedralPaintingGroups = [];
         }
 
-        // Sort walls by height (bottom to top) for bottom-up loading
-        const sortedWalls = [...this.wallSegments].sort((a, b) => a.position.y - b.position.y);
-
-        for (let i = 0; i < sortedWalls.length; i++) {
-            const wall = sortedWalls[i];
-
-            // Get a Wikipedia image
-            const imageData = await getWikipediaImage();
-            if (!imageData || !imageData.imageUrl) {
-                if (typeof loadedImagesCount !== 'undefined') loadedImagesCount++;
-                continue;
+        // Group walls by row (floor level)
+        const wallsByRow = {};
+        for (const wall of this.wallSegments) {
+            const row = wall.userData.gridRow;
+            if (!wallsByRow[row]) {
+                wallsByRow[row] = [];
             }
-
-            // Create painting frame
-            const frameWidth = this.segmentWidth * 0.85;
-            const frameHeight = this.segmentHeight * 0.85;
-            const frameDepth = 0.05;
-
-            // Frame
-            const frameGeometry = new THREE.BoxGeometry(frameWidth + 0.08, frameHeight + 0.08, frameDepth);
-            const frameMaterial = new THREE.MeshLambertMaterial({ color: 0x4A3728 });
-            const frame = new THREE.Mesh(frameGeometry, frameMaterial);
-
-            // Canvas
-            const canvasGeometry = new THREE.PlaneGeometry(frameWidth, frameHeight);
-            const canvasMaterial = new THREE.MeshLambertMaterial({ color: 0xffffff });
-            const canvas = new THREE.Mesh(canvasGeometry, canvasMaterial);
-            canvas.position.z = frameDepth / 2 + 0.001;
-
-            // Load texture
-            textureLoader.load(imageData.imageUrl, (texture) => {
-                canvas.material.map = texture;
-                canvas.material.needsUpdate = true;
-            });
-
-            // Create title plate
-            const plateWidth = frameWidth * 0.8;
-            const plateHeight = 0.08;
-            const plateGeometry = new THREE.PlaneGeometry(plateWidth, plateHeight);
-
-            const titleCanvas = document.createElement('canvas');
-            titleCanvas.width = 256;
-            titleCanvas.height = 20;
-            const ctx = titleCanvas.getContext('2d');
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-            ctx.fillRect(0, 0, 256, 20);
-            ctx.fillStyle = 'white';
-            ctx.font = 'bold 8px Arial';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            let title = imageData.title || 'Untitled';
-            if (title.length > 20) title = title.substring(0, 17) + '...';
-            ctx.fillText(title, 128, 10);
-
-            const plateTexture = new THREE.CanvasTexture(titleCanvas);
-            const plateMaterial = new THREE.MeshBasicMaterial({
-                map: plateTexture,
-                transparent: true
-            });
-            const plate = new THREE.Mesh(plateGeometry, plateMaterial);
-            plate.position.y = -frameHeight / 2 - 0.05;
-            plate.position.z = frameDepth / 2 + 0.001;
-
-            // Group all painting elements
-            const paintingGroup = new THREE.Group();
-            paintingGroup.add(frame);
-            paintingGroup.add(canvas);
-            paintingGroup.add(plate);
-
-            // Position on wall (slightly in front, facing inward toward center)
-            paintingGroup.position.copy(wall.position);
-
-            // Adjust position based on wall direction to keep paintings inside room
-            if (wall.userData.direction === 'north') {
-                paintingGroup.position.z -= 0.1; // Move inward (toward center/south)
-            } else if (wall.userData.direction === 'south') {
-                paintingGroup.position.z += 0.1; // Move inward (toward center/north)
-            } else if (wall.userData.direction === 'east') {
-                paintingGroup.position.x -= 0.1; // Move inward (toward center/west)
-            } else if (wall.userData.direction === 'west') {
-                paintingGroup.position.x += 0.1; // Move inward (toward center/east)
-            }
-
-            paintingGroup.rotation.y = wall.rotation.y;
-
-            group.add(paintingGroup);
-
-            // Track painting group for reload functionality
-            window.cathedralPaintingGroups[i] = paintingGroup;
-
-            // Update progress tracking
-            if (typeof loadedImagesCount !== 'undefined') loadedImagesCount++;
+            wallsByRow[row].push(wall);
         }
+
+        // Load floor by floor (row by row), starting from bottom
+        const sortedRows = Object.keys(wallsByRow).map(Number).sort((a, b) => a - b);
+        console.log('Loading', sortedRows.length, 'floors');
+
+        for (const row of sortedRows) {
+            const wallsInRow = wallsByRow[row];
+            console.log('Loading floor', row, 'with', wallsInRow.length, 'walls');
+
+            // Load all paintings on this floor simultaneously using Promise.all
+            const paintingPromises = wallsInRow.map(wall => this.createPaintingForWall(wall, group, textureLoader, textureStyle));
+            await Promise.all(paintingPromises);
+        }
+
+        console.log('Cathedral painting load complete');
+    }
+
+    async createPaintingForWall(wall, group, textureLoader, textureStyle) {
+        // Get a Wikipedia image
+        const imageData = await getWikipediaImage();
+        if (!imageData || !imageData.imageUrl) {
+            if (typeof loadedImagesCount !== 'undefined') loadedImagesCount++;
+            return;
+        }
+
+        // Load texture and get dimensions for aspect ratio
+        let texture;
+        await new Promise((resolve) => {
+            textureLoader.load(imageData.imageUrl, (loadedTexture) => {
+                texture = loadedTexture;
+                resolve();
+            });
+        });
+
+        // Get image dimensions and calculate aspect ratio
+        const dimensions = {
+            width: texture.image.width,
+            height: texture.image.height
+        };
+        const aspectRatio = dimensions.width / dimensions.height;
+
+        // Calculate frame size with aspect ratio preservation (like maze.js)
+        // Frame should be 30-60% of wall size
+        const sizeMultiplier = 0.3 + Math.random() * 0.3; // Random between 0.3 and 0.6
+        const maxFrameWidth = this.segmentWidth * sizeMultiplier;
+        const maxFrameHeight = this.segmentHeight * sizeMultiplier;
+
+        // Calculate actual frame dimensions maintaining aspect ratio
+        let frameWidth, frameHeight;
+        if (aspectRatio > 1) {
+            // Landscape: width is limiting factor
+            frameWidth = maxFrameWidth;
+            frameHeight = maxFrameWidth / aspectRatio;
+            if (frameHeight > maxFrameHeight) {
+                frameHeight = maxFrameHeight;
+                frameWidth = maxFrameHeight * aspectRatio;
+            }
+        } else {
+            // Portrait: height is limiting factor
+            frameHeight = maxFrameHeight;
+            frameWidth = maxFrameHeight * aspectRatio;
+            if (frameWidth > maxFrameWidth) {
+                frameWidth = maxFrameWidth;
+                frameHeight = maxFrameWidth / aspectRatio;
+            }
+        }
+
+        const frameDepth = 0.05;
+
+        // Frame
+        const frameGeometry = new THREE.BoxGeometry(frameWidth + 0.08, frameHeight + 0.08, frameDepth);
+        const frameMaterial = new THREE.MeshLambertMaterial({ color: 0x4A3728 });
+        const frame = new THREE.Mesh(frameGeometry, frameMaterial);
+
+        // Canvas - now with correct aspect ratio
+        const canvasGeometry = new THREE.PlaneGeometry(frameWidth, frameHeight);
+        const canvasMaterial = new THREE.MeshLambertMaterial({ color: 0xffffff, map: texture });
+        const canvas = new THREE.Mesh(canvasGeometry, canvasMaterial);
+        canvas.position.z = frameDepth / 2 + 0.001;
+
+        // Create title plate
+        const plateWidth = frameWidth * 0.8;
+        const plateHeight = 0.08;
+        const plateGeometry = new THREE.PlaneGeometry(plateWidth, plateHeight);
+
+        const titleCanvas = document.createElement('canvas');
+        titleCanvas.width = 256;
+        titleCanvas.height = 20;
+        const ctx = titleCanvas.getContext('2d');
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+        ctx.fillRect(0, 0, 256, 20);
+        ctx.fillStyle = 'white';
+        ctx.font = 'bold 8px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        let title = imageData.title || 'Untitled';
+        if (title.length > 20) title = title.substring(0, 17) + '...';
+        ctx.fillText(title, 128, 10);
+
+        const plateTexture = new THREE.CanvasTexture(titleCanvas);
+        const plateMaterial = new THREE.MeshBasicMaterial({
+            map: plateTexture,
+            transparent: true
+        });
+        const plate = new THREE.Mesh(plateGeometry, plateMaterial);
+        plate.position.y = -frameHeight / 2 - 0.05;
+        plate.position.z = frameDepth / 2 + 0.001;
+
+        // Group all painting elements
+        const paintingGroup = new THREE.Group();
+        paintingGroup.add(frame);
+        paintingGroup.add(canvas);
+        paintingGroup.add(plate);
+
+        // Position on wall (slightly in front, facing inward toward center)
+        paintingGroup.position.copy(wall.position);
+
+        // Adjust position based on wall direction to keep paintings inside room
+        if (wall.userData.direction === 'north') {
+            paintingGroup.position.z -= 0.1; // Move inward (toward center/south)
+        } else if (wall.userData.direction === 'south') {
+            paintingGroup.position.z += 0.1; // Move inward (toward center/north)
+        } else if (wall.userData.direction === 'east') {
+            paintingGroup.position.x -= 0.1; // Move inward (toward center/west)
+        } else if (wall.userData.direction === 'west') {
+            paintingGroup.position.x += 0.1; // Move inward (toward center/east)
+        }
+
+        paintingGroup.rotation.y = wall.rotation.y;
+
+        group.add(paintingGroup);
+
+        // Track painting group for reload functionality (by unique wall index)
+        const paintingIndex = window.cathedralPaintingGroups.length;
+        window.cathedralPaintingGroups[paintingIndex] = paintingGroup;
+
+        // Update progress tracking
+        if (typeof loadedImagesCount !== 'undefined') loadedImagesCount++;
     }
 
     getFloorMaterial(textureStyle) {
