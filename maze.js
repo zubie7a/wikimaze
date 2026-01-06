@@ -6,7 +6,9 @@ const CELL_SIZE = 2;
 
 // Get effective maze size based on scene mode
 function getEffectiveSize() {
-    return sceneMode === 'openspace' ? openspaceSize : MAZE_SIZE;
+    if (sceneMode === 'openspace') return openspaceSize;
+    if (sceneMode === 'pillars') return 15;
+    return MAZE_SIZE;
 }
 
 // Get a random odd size for openspace rooms
@@ -476,9 +478,9 @@ async function createMaze(wallData) {
     // Select walls for Wikipedia images
     const wikipediaWallKeys = new Set();
 
-    // Helper to check if a wall has a door (openspace mode only)
+    // Helper to check if a wall has a door (openspace and pillars modes)
     const isDoorWall = (type, x, y) => {
-        if (sceneMode !== 'openspace') return false;
+        if (sceneMode !== 'openspace' && sceneMode !== 'pillars') return false;
         const center = Math.floor(SIZE / 2);
         // North door: horizontal at y=0, x=center
         if (type === 'horizontal' && y === 0 && x === center) return true;
@@ -2010,6 +2012,27 @@ function isValidPosition(x, z) {
                 return false;
             }
         }
+    } else if (sceneMode === 'pillars') {
+        // In pillars mode, allow crossing through doors (same as openspace)
+        const doors = window.pillarsDoors;
+        if (doors) {
+            const inNorthDoor = z < -halfSize + checkDist && x >= doors.north.minX && x <= doors.north.maxX;
+            const inSouthDoor = z > halfSize - checkDist && x >= doors.south.minX && x <= doors.south.maxX;
+            const inWestDoor = x < -halfSize + checkDist && z >= doors.west.minZ && z <= doors.west.maxZ;
+            const inEastDoor = x > halfSize - checkDist && z >= doors.east.minZ && z <= doors.east.maxZ;
+
+            // Block if at boundary but NOT in a door
+            if (x < -halfSize + checkDist && !inWestDoor) return false;
+            if (x > halfSize - checkDist && !inEastDoor) return false;
+            if (z < -halfSize + checkDist && !inNorthDoor) return false;
+            if (z > halfSize - checkDist && !inSouthDoor) return false;
+        } else {
+            // Fallback if doors not initialized
+            if (x < -halfSize + checkDist || x > halfSize - checkDist ||
+                z < -halfSize + checkDist || z > halfSize - checkDist) {
+                return false;
+            }
+        }
     } else if (sceneMode === 'gallery') {
         // Gallery mode: circular boundary based on gallery radius
         const galleryRadius = window.galleryRadius || 20;
@@ -2073,10 +2096,10 @@ function isValidPosition(x, z) {
     if (!mazeData) return true;
     const { horizontalWalls, verticalWalls } = mazeData;
 
-    // Helper to check if a wall is a door wall (no collision in openspace mode)
+    // Helper to check if a wall is a door wall (no collision in openspace/pillars mode)
     const center = Math.floor(SIZE / 2);
     const isDoorWall = (type, wallX, wallY) => {
-        if (sceneMode !== 'openspace') return false;
+        if (sceneMode !== 'openspace' && sceneMode !== 'pillars') return false;
         // North door: horizontal at y=0, x=center
         if (type === 'horizontal' && wallY === 0 && wallX === center) return true;
         // South door: horizontal at y=SIZE, x=center
@@ -2736,6 +2759,23 @@ function updateMovement() {
         if (exitDirection && !isTransitioningRoom && !window.justRegenerated) {
             console.log('Openspace door detected:', exitDirection, 'justRegenerated:', window.justRegenerated, 'isTransitioningRoom:', isTransitioningRoom);
             handleOpenspaceDoorCrossing(exitDirection);
+        }
+    }
+
+    // Door crossing for pillars mode
+    if (sceneMode === 'pillars' && window.pillarsDoors) {
+        const halfSize = (getEffectiveSize() * CELL_SIZE) / 2;
+
+        // Detect which door was crossed and pass to handler
+        let exitDirection = null;
+        if (playerPosition.x < -halfSize) exitDirection = 'west';
+        else if (playerPosition.x > halfSize) exitDirection = 'east';
+        else if (playerPosition.z < -halfSize) exitDirection = 'north';
+        else if (playerPosition.z > halfSize) exitDirection = 'south';
+
+        if (exitDirection && !isTransitioningRoom && !window.justRegenerated) {
+            console.log('Pillars door detected:', exitDirection, 'justRegenerated:', window.justRegenerated, 'isTransitioningRoom:', isTransitioningRoom);
+            handlePillarsDoorCrossing(exitDirection);
         }
     }
 
@@ -3511,7 +3551,7 @@ async function handleAlleyCrossing() {
         // Fade to black/white before transition
         await fadeToBlack();
 
-        const availableScenes = ['gallery', 'alley', 'openspace', 'cathedral'];
+        const availableScenes = ['gallery', 'alley', 'openspace', 'cathedral', 'pillars'];
         const randomIndex = Math.floor(Math.random() * availableScenes.length);
         const newSceneMode = availableScenes[randomIndex];
         sceneMode = newSceneMode;
@@ -3579,6 +3619,14 @@ async function handleAlleyCrossing() {
                     playerRotation = -Math.PI / 2;
                 }
             }
+        } else if (newSceneMode === 'pillars') {
+            // Spawn at a door in pillars (similar to openspace)
+            const pillarsSize = 15;
+            const pillarsHalfSize = (pillarsSize * CELL_SIZE) / 2;
+            const doorOffset = 1.5;
+            playerPosition.x = -pillarsHalfSize + doorOffset;
+            playerPosition.z = 0;
+            playerRotation = -Math.PI / 2;
         }
 
         camera.position.set(playerPosition.x, playerPosition.y || 1.2, playerPosition.z);
@@ -3624,7 +3672,7 @@ async function handleGalleryDoorCrossing(exitDoorWallIndex) {
             await fadeToBlack();
 
             // Select random scene BEFORE regenerating to prevent double selection
-            const availableScenes = ['gallery', 'alley', 'openspace', 'cathedral'];
+            const availableScenes = ['gallery', 'alley', 'openspace', 'cathedral', 'pillars'];
             const randomIndex = Math.floor(Math.random() * availableScenes.length);
             const newSceneMode = availableScenes[randomIndex];
 
@@ -3697,6 +3745,14 @@ async function handleGalleryDoorCrossing(exitDoorWallIndex) {
                         playerRotation = -Math.PI / 2;
                     }
                 }
+            } else if (newSceneMode === 'pillars') {
+                // Spawn at a door in pillars (similar to openspace)
+                const pillarsSize = 15;
+                const pillarsHalfSize = (pillarsSize * CELL_SIZE) / 2;
+                const doorOffset = 1.5;
+                playerPosition.x = -pillarsHalfSize + doorOffset;
+                playerPosition.z = 0;
+                playerRotation = -Math.PI / 2;
             }
 
             camera.position.set(playerPosition.x, playerPosition.y || 1.2, playerPosition.z);
@@ -3767,7 +3823,7 @@ async function handleOpenspaceDoorCrossing(exitDirection) {
             await fadeToBlack();
 
             // Select random scene BEFORE regenerating to prevent double selection
-            const availableScenes = ['gallery', 'alley', 'openspace', 'cathedral'];
+            const availableScenes = ['gallery', 'alley', 'openspace', 'cathedral', 'pillars'];
             const randomIndex = Math.floor(Math.random() * availableScenes.length);
             const newSceneMode = availableScenes[randomIndex];
 
@@ -3866,6 +3922,14 @@ async function handleOpenspaceDoorCrossing(exitDirection) {
                         playerRotation = -Math.PI / 2;
                     }
                 }
+            } else if (newSceneMode === 'pillars') {
+                // Spawn at a door in pillars (similar to openspace)
+                const pillarsSize = 15;
+                const pillarsHalfSize = (pillarsSize * CELL_SIZE) / 2;
+                const doorOffset = 1.5;
+                playerPosition.x = -pillarsHalfSize + doorOffset;
+                playerPosition.z = 0;
+                playerRotation = -Math.PI / 2;
             }
 
             camera.position.set(playerPosition.x, playerPosition.y || 1.2, playerPosition.z);
@@ -3934,6 +3998,155 @@ async function handleOpenspaceDoorCrossing(exitDirection) {
     }
 }
 
+// Handle crossing pillars door - similar to openspace but fixed 15x15 size
+async function handlePillarsDoorCrossing(exitDirection) {
+    if (sceneMode !== 'pillars') return;
+
+    // Prevent concurrent door crossings
+    if (isTransitioningRoom) {
+        console.log('Already transitioning pillars, ignoring duplicate call');
+        return;
+    }
+    isTransitioningRoom = true;
+
+    try {
+        // If random scene change is enabled, randomly change scene
+        if (randomSceneChange) {
+            await fadeToBlack();
+
+            const availableScenes = ['gallery', 'alley', 'openspace', 'cathedral', 'pillars'];
+            const randomIndex = Math.floor(Math.random() * availableScenes.length);
+            const newSceneMode = availableScenes[randomIndex];
+            sceneMode = newSceneMode;
+
+            const sceneModeSelect = statsDiv?.querySelector('#scene-mode-select');
+            if (sceneModeSelect && sceneModeSelectHandler) {
+                sceneModeSelect.removeEventListener('change', sceneModeSelectHandler);
+                sceneModeSelect.value = sceneMode;
+                setTimeout(() => {
+                    sceneModeSelect.addEventListener('change', sceneModeSelectHandler);
+                }, 0);
+            }
+
+            await regenerateScene();
+
+            // Position player based on new scene
+            const size = 15; // Pillars uses fixed size
+            const halfSize = (size * CELL_SIZE) / 2;
+            const doorOffset = 1.5;
+
+            if (newSceneMode === 'pillars' || newSceneMode === 'openspace') {
+                switch (exitDirection) {
+                    case 'east':
+                        playerPosition.x = -halfSize + doorOffset;
+                        playerPosition.z = 0;
+                        playerRotation = -Math.PI / 2;
+                        break;
+                    case 'west':
+                        playerPosition.x = halfSize - doorOffset;
+                        playerPosition.z = 0;
+                        playerRotation = Math.PI / 2;
+                        break;
+                    case 'south':
+                        playerPosition.x = 0;
+                        playerPosition.z = -halfSize + doorOffset;
+                        playerRotation = Math.PI;
+                        break;
+                    case 'north':
+                        playerPosition.x = 0;
+                        playerPosition.z = halfSize - doorOffset;
+                        playerRotation = 0;
+                        break;
+                }
+            } else if (newSceneMode === 'gallery') {
+                const doors = window.galleryDoors;
+                if (doors) {
+                    const spawnDoor = Math.random() < 0.5 ? doors.door1 : doors.door2;
+                    const spawnDist = doors.doorRadius - 2.0;
+                    playerPosition.x = Math.cos(spawnDoor.angle) * spawnDist;
+                    playerPosition.z = Math.sin(spawnDoor.angle) * spawnDist;
+                    playerRotation = Math.atan2(playerPosition.x, playerPosition.z);
+                }
+            } else if (newSceneMode === 'alley') {
+                const alleySize = getEffectiveSize();
+                const alleyZ = Math.floor(alleySize / 2);
+                const alleyHalfSize = (alleySize * CELL_SIZE) / 2;
+                playerPosition.x = alleyHalfSize - 1.5;
+                playerPosition.z = (alleyZ - alleySize / 2) * CELL_SIZE + CELL_SIZE / 2;
+                playerRotation = Math.PI / 2;
+            } else if (newSceneMode === 'cathedral') {
+                const doors = window.cathedralDoors;
+                if (doors) {
+                    const spawnDoor = Math.random() < 0.5 ? doors.door1 : doors.door2;
+                    const cathedralDoorOffset = 2.0;
+                    if (spawnDoor.direction === 'north') {
+                        playerPosition.x = spawnDoor.x;
+                        playerPosition.z = spawnDoor.z - cathedralDoorOffset;
+                        playerRotation = 0;
+                    } else if (spawnDoor.direction === 'south') {
+                        playerPosition.x = spawnDoor.x;
+                        playerPosition.z = spawnDoor.z + cathedralDoorOffset;
+                        playerRotation = Math.PI;
+                    } else if (spawnDoor.direction === 'east') {
+                        playerPosition.x = spawnDoor.x - cathedralDoorOffset;
+                        playerPosition.z = spawnDoor.z;
+                        playerRotation = Math.PI / 2;
+                    } else {
+                        playerPosition.x = spawnDoor.x + cathedralDoorOffset;
+                        playerPosition.z = spawnDoor.z;
+                        playerRotation = -Math.PI / 2;
+                    }
+                }
+            }
+
+            camera.position.set(playerPosition.x, playerPosition.y || 1.2, playerPosition.z);
+            camera.rotation.y = playerRotation;
+
+            await fadeFromBlack();
+            return;
+        }
+
+        // Non-random: just regenerate the pillars scene
+        await fadeToBlack();
+        await regenerateScene();
+
+        // Position player at the opposite door
+        const size = 15;
+        const halfSize = (size * CELL_SIZE) / 2;
+        const doorOffset = 1.5;
+
+        switch (exitDirection) {
+            case 'east':
+                playerPosition.x = -halfSize + doorOffset;
+                playerPosition.z = 0;
+                playerRotation = -Math.PI / 2;
+                break;
+            case 'west':
+                playerPosition.x = halfSize - doorOffset;
+                playerPosition.z = 0;
+                playerRotation = Math.PI / 2;
+                break;
+            case 'south':
+                playerPosition.x = 0;
+                playerPosition.z = -halfSize + doorOffset;
+                playerRotation = Math.PI;
+                break;
+            case 'north':
+                playerPosition.x = 0;
+                playerPosition.z = halfSize - doorOffset;
+                playerRotation = 0;
+                break;
+        }
+
+        camera.position.set(playerPosition.x, 1.2, playerPosition.z);
+        camera.rotation.y = playerRotation;
+
+        await fadeFromBlack();
+    } finally {
+        isTransitioningRoom = false;
+    }
+}
+
 // Handle crossing cathedral door - regenerate cathedral or transition to random scene
 async function handleCathedralDoorCrossing(exitDoorIndex) {
     if (sceneMode !== 'cathedral') return;
@@ -3951,7 +4164,7 @@ async function handleCathedralDoorCrossing(exitDoorIndex) {
 
         // If random scene change is enabled, randomly change scene
         if (randomSceneChange) {
-            const availableScenes = ['gallery', 'alley', 'openspace', 'cathedral'];
+            const availableScenes = ['gallery', 'alley', 'openspace', 'cathedral', 'pillars'];
             const randomIndex = Math.floor(Math.random() * availableScenes.length);
             const newSceneMode = availableScenes[randomIndex];
 
@@ -4089,6 +4302,7 @@ function updateStatsDisplay() {
                 <select id="scene-mode-select" style="width: 100%; padding: 3px; background: #333; color: #fff; border: 1px solid #666;">
                     <option value="maze" ${sceneMode === 'maze' ? 'selected' : ''}>Maze</option>
                     <option value="openspace" ${sceneMode === 'openspace' ? 'selected' : ''}>Open Space</option>
+                    <option value="pillars" ${sceneMode === 'pillars' ? 'selected' : ''}>Pillars</option>
                     <option value="alley" ${sceneMode === 'alley' ? 'selected' : ''}>Endless Alley</option>
                     <option value="gallery" ${sceneMode === 'gallery' ? 'selected' : ''}>Gallery</option>
                     <option value="cathedral" ${sceneMode === 'cathedral' ? 'selected' : ''}>Cathedral</option>
