@@ -59,7 +59,7 @@ let mazeGeneration = 0; // Counter to invalidate stale loading operations
 let globalAmbientLight = null; // Reference to ambient light for updating
 let globalDirectionalLight = null; // Reference to directional light for updating
 let globalGalleryCenterLight = null; // Reference to center point light for gallery W95
-let globalCathedralPlayerLight = null; // Reference to point light that follows player in cathedral backrooms
+let globalPlayerLight = null; // Reference to point light that follows player in cathedral/complex backrooms
 let flickeringLights = []; // Array of {light, lamp, baseIntensity} for flickering effect
 let creepyEyes = []; // Array of blinking eye pairs [{leftEye, rightEye, glow, nextBlinkTime, isBlinking}, ...]
 
@@ -378,15 +378,23 @@ async function createMaze(wallData) {
         });
 
         // Create a grid of ceiling lamps
-        const lampSpacing = CELL_SIZE * 1.5; // Space between lamps
+        let lampSpacing = CELL_SIZE * 1.5; // Space between lamps
+        // Reduce light density for complex scene to avoid hitting WebGL light limits
+        if (sceneMode === 'complex') {
+            lampSpacing = CELL_SIZE * 3.0;
+        }
         const halfMaze = (SIZE * CELL_SIZE) / 2;
 
         for (let x = -halfMaze + lampSpacing / 2; x < halfMaze; x += lampSpacing) {
             for (let z = -halfMaze + lampSpacing / 2; z < halfMaze; z += lampSpacing) {
                 // Randomly determine lamp state: 80% on, 10% off, 10% flickering
                 const rand = Math.random();
-                const isOff = rand < 0.10;
-                const isFlickering = rand >= 0.10 && rand < 0.20;
+                var isOff = rand < 0.10;
+                var isFlickering = rand >= 0.10 && rand < 0.20;
+                if (sceneMode === 'complex') {
+                    isFlickering = rand >= 0.10 && rand < 0.20;
+                    isOff = !isFlickering;
+                }
 
                 // Create lamp fixture geometry (square)
                 const lampGeometry = new THREE.BoxGeometry(lampSize, lampHeight, lampSize);
@@ -1301,23 +1309,23 @@ async function regenerateScene() {
                 globalGalleryCenterLight = null;
             }
             // For cathedral backrooms, add point light that follows player
-            if (sceneMode === 'cathedral') {
-                if (!globalCathedralPlayerLight && scene) {
-                    globalCathedralPlayerLight = new THREE.PointLight(0xFFF5E0, 3.0, 5, 1.5);
-                    scene.add(globalCathedralPlayerLight);
+            if (sceneMode === 'cathedral' || sceneMode === 'complex') {
+                if (!globalPlayerLight && scene) {
+                    globalPlayerLight = new THREE.PointLight(0xFFF5E0, 3.0, 5, 1.5);
+                    scene.add(globalPlayerLight);
                 }
             } else {
-                // Remove cathedral player light if switching away from cathedral
-                if (globalCathedralPlayerLight && scene) {
-                    scene.remove(globalCathedralPlayerLight);
-                    globalCathedralPlayerLight = null;
+                // Remove player light if switching away from cathedral/complex or backrooms
+                if (globalPlayerLight && scene) {
+                    scene.remove(globalPlayerLight);
+                    globalPlayerLight = null;
                 }
             }
         } else {
-            // Remove cathedral player light if not backrooms
-            if (globalCathedralPlayerLight && scene) {
-                scene.remove(globalCathedralPlayerLight);
-                globalCathedralPlayerLight = null;
+            // Remove player light if not backrooms
+            if (globalPlayerLight && scene) {
+                scene.remove(globalPlayerLight);
+                globalPlayerLight = null;
             }
             if (sceneMode === 'gallery' && textureStyle === 'w95') {
                 // Gallery with W95 texture: use point light from center
@@ -1576,23 +1584,23 @@ function init() {
         globalDirectionalLight = null;
         globalGalleryCenterLight = null;
         // For cathedral backrooms, add point light that follows player
-        if (sceneMode === 'cathedral') {
-            if (!globalCathedralPlayerLight) {
-                globalCathedralPlayerLight = new THREE.PointLight(0xFFF5E0, 3.0, 15, 1.5);
-                scene.add(globalCathedralPlayerLight);
+        if (sceneMode === 'cathedral' || sceneMode === 'complex') {
+            if (!globalPlayerLight) {
+                globalPlayerLight = new THREE.PointLight(0xFFF5E0, 3.0, 15, 1.5);
+                scene.add(globalPlayerLight);
             }
         } else {
-            // Remove cathedral player light if switching away from cathedral
-            if (globalCathedralPlayerLight) {
-                scene.remove(globalCathedralPlayerLight);
-                globalCathedralPlayerLight = null;
+            // Remove player light if switching away from cathedral/complex(during regen)
+            if (globalPlayerLight) {
+                scene.remove(globalPlayerLight);
+                globalPlayerLight = null;
             }
         }
     } else {
-        // Remove cathedral player light if not backrooms
-        if (globalCathedralPlayerLight) {
-            scene.remove(globalCathedralPlayerLight);
-            globalCathedralPlayerLight = null;
+        // Remove player light if not backrooms
+        if (globalPlayerLight) {
+            scene.remove(globalPlayerLight);
+            globalPlayerLight = null;
         }
         if (sceneMode === 'gallery' && textureStyle === 'w95') {
             // Gallery with W95 texture: use point light from center
@@ -3319,9 +3327,9 @@ function animate() {
     updateFlickeringLights();
     updateCreepyEyes();
 
-    // Update cathedral player light position to follow camera
-    if (globalCathedralPlayerLight && sceneMode === 'cathedral' && textureStyle === 'backrooms') {
-        globalCathedralPlayerLight.position.set(
+    // Update player light position to follow camera
+    if (globalPlayerLight && (sceneMode === 'cathedral' || sceneMode === 'complex') && textureStyle === 'backrooms') {
+        globalPlayerLight.position.set(
             camera.position.x,
             camera.position.y + 0.5, // Fixed height above ground (ground is at -0.5, so this is 1.5 units above ground)
             camera.position.z
