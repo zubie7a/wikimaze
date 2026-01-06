@@ -29,6 +29,7 @@ let statsDiv = null; // Stats display element
 let useRandomImages = true; // Whether to use random images or topic-based search
 let searchTopic = ''; // Topic to search for Wikipedia images
 let textureStyle = 'w95'; // 'w95' (framed with bricks), 'entirewall' (image covers entire wall), or 'backrooms'
+let randomSceneChange = false; // Whether to randomly change scene when crossing doors
 let isLoadingImages = false; // Whether images are currently being loaded
 let loadedImagesCount = 0; // Number of images loaded so far
 let totalImagesToLoad = 0; // Total number of images to load
@@ -1290,6 +1291,59 @@ async function regenerateScene() {
     playerPosition.x = startPos.x;
     playerPosition.z = startPos.z;
     playerRotation = startPos.rotation;
+    
+    // If random scene change is enabled, spawn at a door instead of default position
+    if (randomSceneChange) {
+        if (sceneMode === 'openspace') {
+            // Spawn at a random door in openspace
+            const newHalfSize = (openspaceSize * CELL_SIZE) / 2;
+            const doorOffset = 0.5;
+            const doors = ['north', 'south', 'east', 'west'];
+            const randomDoor = doors[Math.floor(Math.random() * doors.length)];
+            switch (randomDoor) {
+                case 'east':
+                    playerPosition.x = newHalfSize - doorOffset;
+                    playerPosition.z = 0;
+                    playerRotation = Math.PI / 2; // Face west (toward center)
+                    break;
+                case 'west':
+                    playerPosition.x = -newHalfSize + doorOffset;
+                    playerPosition.z = 0;
+                    playerRotation = -Math.PI / 2; // Face east (toward center)
+                    break;
+                case 'south':
+                    playerPosition.x = 0;
+                    playerPosition.z = newHalfSize - doorOffset;
+                    playerRotation = 0; // Face north (toward center)
+                    break;
+                case 'north':
+                    playerPosition.x = 0;
+                    playerPosition.z = -newHalfSize + doorOffset;
+                    playerRotation = Math.PI; // Face south (toward center)
+                    break;
+            }
+        } else if (sceneMode === 'gallery') {
+            // Spawn at a door in gallery
+            const doors = window.galleryDoors;
+            if (doors) {
+                const spawnDoor = Math.random() < 0.5 ? doors.door1 : doors.door2;
+                const doorOffset = 1.0;
+                const spawnDist = doors.doorRadius - doorOffset;
+                playerPosition.x = Math.cos(spawnDoor.angle) * spawnDist;
+                playerPosition.z = Math.sin(spawnDoor.angle) * spawnDist;
+                playerRotation = Math.atan2(playerPosition.x, playerPosition.z);
+            }
+        } else if (sceneMode === 'alley') {
+            // Spawn at the right side (east) of the alley, like a door entrance
+            const alleyZ = Math.floor(SIZE / 2);
+            const halfSize = (SIZE * CELL_SIZE) / 2;
+            const doorOffset = 0.5; // How far inside from the edge
+            playerPosition.x = halfSize - doorOffset; // Right side (east) of the alley
+            playerPosition.z = (alleyZ - SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
+            playerRotation = Math.PI / 2; // Face east (down the alley)
+        }
+    }
+    
     camera.position.set(playerPosition.x, 1.2, playerPosition.z);
     camera.rotation.y = playerRotation;
 
@@ -3252,6 +3306,54 @@ async function reloadAllPaintings() {
 async function handleAlleyCrossing() {
     if (sceneMode !== 'alley') return;
 
+    // If random scene change is enabled, randomly change scene
+    if (randomSceneChange) {
+        const availableScenes = ['gallery', 'alley', 'openspace'];
+        const randomIndex = Math.floor(Math.random() * availableScenes.length);
+        const newSceneMode = availableScenes[randomIndex];
+        sceneMode = newSceneMode;
+        // Update dropdown to reflect new scene
+        const sceneModeSelect = statsDiv?.querySelector('#scene-mode-select');
+        if (sceneModeSelect) {
+            sceneModeSelect.value = sceneMode;
+        }
+        await regenerateScene();
+        
+        // Position player at appropriate door based on new scene type
+        if (newSceneMode === 'openspace') {
+            // Spawn at a door in openspace (default to west door)
+            const newHalfSize = (openspaceSize * CELL_SIZE) / 2;
+            const doorOffset = 0.5;
+            playerPosition.x = -newHalfSize + doorOffset;
+            playerPosition.z = 0;
+            playerRotation = -Math.PI / 2; // Face east (toward center)
+        } else if (newSceneMode === 'gallery') {
+            // Spawn at a door in gallery
+            const doors = window.galleryDoors;
+            if (doors) {
+                const spawnDoor = Math.random() < 0.5 ? doors.door1 : doors.door2;
+                const doorOffset = 1.0;
+                const spawnDist = doors.doorRadius - doorOffset;
+                playerPosition.x = Math.cos(spawnDoor.angle) * spawnDist;
+                playerPosition.z = Math.sin(spawnDoor.angle) * spawnDist;
+                playerRotation = Math.atan2(playerPosition.x, playerPosition.z);
+            }
+        } else if (newSceneMode === 'alley') {
+            // Spawn at the right side (east) of the alley, like a door entrance
+            const size = getEffectiveSize();
+            const alleyZ = Math.floor(size / 2);
+            const halfSize = (size * CELL_SIZE) / 2;
+            const doorOffset = 0.5; // How far inside from the edge
+            playerPosition.x = halfSize - doorOffset; // Right side (east) of the alley
+            playerPosition.z = (alleyZ - size / 2) * CELL_SIZE + CELL_SIZE / 2;
+            playerRotation = Math.PI / 2; // Face east (down the alley)
+        }
+        
+        camera.position.set(playerPosition.x, playerPosition.y || 1.2, playerPosition.z);
+        camera.rotation.y = playerRotation;
+        return;
+    }
+
     console.log('Crossed alley boundary, loading fresh paintings...');
 
     // Clear current paintings
@@ -3275,6 +3377,21 @@ async function handleGalleryDoorCrossing(exitDoorWallIndex) {
     isTransitioningRoom = true;
 
     try {
+        // If random scene change is enabled, randomly change scene and skip normal processing
+        if (randomSceneChange) {
+            const availableScenes = ['gallery', 'alley', 'openspace'];
+            const randomIndex = Math.floor(Math.random() * availableScenes.length);
+            sceneMode = availableScenes[randomIndex];
+            // Update dropdown to reflect new scene
+            const sceneModeSelect = statsDiv?.querySelector('#scene-mode-select');
+            if (sceneModeSelect) {
+                sceneModeSelect.value = sceneMode;
+            }
+            // Regenerate with new scene and return early
+            await regenerateScene();
+            return;
+        }
+
         console.log(`Crossed gallery door at wall ${exitDoorWallIndex}, regenerating gallery...`);
 
         // Regenerate the entire gallery scene
@@ -3323,6 +3440,83 @@ async function handleOpenspaceDoorCrossing(exitDirection) {
     isTransitioningRoom = true;
 
     try {
+        // If random scene change is enabled, randomly change scene and skip normal processing
+        if (randomSceneChange) {
+            const availableScenes = ['gallery', 'alley', 'openspace'];
+            const randomIndex = Math.floor(Math.random() * availableScenes.length);
+            const newSceneMode = availableScenes[randomIndex];
+            sceneMode = newSceneMode;
+            // Update dropdown to reflect new scene
+            const sceneModeSelect = statsDiv?.querySelector('#scene-mode-select');
+            if (sceneModeSelect) {
+                sceneModeSelect.value = sceneMode;
+            }
+            // Regenerate with new scene
+            await regenerateScene();
+            
+            // Position player at appropriate door based on new scene type
+            if (newSceneMode === 'openspace') {
+                // Spawn at opposite door in openspace (if exited east, spawn at west, etc.)
+                const newHalfSize = (openspaceSize * CELL_SIZE) / 2;
+                const doorOffset = 0.5;
+                // Map exit direction to opposite door
+                let oppositeDirection;
+                switch (exitDirection) {
+                    case 'east': oppositeDirection = 'west'; break;
+                    case 'west': oppositeDirection = 'east'; break;
+                    case 'north': oppositeDirection = 'south'; break;
+                    case 'south': oppositeDirection = 'north'; break;
+                    default: oppositeDirection = 'west'; break;
+                }
+                switch (oppositeDirection) {
+                    case 'east':
+                        playerPosition.x = newHalfSize - doorOffset;
+                        playerPosition.z = 0;
+                        playerRotation = Math.PI / 2; // Face west (toward center)
+                        break;
+                    case 'west':
+                        playerPosition.x = -newHalfSize + doorOffset;
+                        playerPosition.z = 0;
+                        playerRotation = -Math.PI / 2; // Face east (toward center)
+                        break;
+                    case 'south':
+                        playerPosition.x = 0;
+                        playerPosition.z = newHalfSize - doorOffset;
+                        playerRotation = 0; // Face north (toward center)
+                        break;
+                    case 'north':
+                        playerPosition.x = 0;
+                        playerPosition.z = -newHalfSize + doorOffset;
+                        playerRotation = Math.PI; // Face south (toward center)
+                        break;
+                }
+            } else if (newSceneMode === 'gallery') {
+                // Spawn at a door in gallery
+                const doors = window.galleryDoors;
+                if (doors) {
+                    const spawnDoor = Math.random() < 0.5 ? doors.door1 : doors.door2;
+                    const doorOffset = 1.0;
+                    const spawnDist = doors.doorRadius - doorOffset;
+                    playerPosition.x = Math.cos(spawnDoor.angle) * spawnDist;
+                    playerPosition.z = Math.sin(spawnDoor.angle) * spawnDist;
+                    playerRotation = Math.atan2(playerPosition.x, playerPosition.z);
+                }
+        } else if (newSceneMode === 'alley') {
+            // Spawn at the right side (east) of the alley, like a door entrance
+            const size = getEffectiveSize();
+            const alleyZ = Math.floor(size / 2);
+            const halfSize = (size * CELL_SIZE) / 2;
+            const doorOffset = 0.5; // How far inside from the edge
+            playerPosition.x = halfSize - doorOffset; // Right side (east) of the alley
+            playerPosition.z = (alleyZ - size / 2) * CELL_SIZE + CELL_SIZE / 2;
+            playerRotation = Math.PI / 2; // Face east (down the alley)
+        }
+            
+            camera.position.set(playerPosition.x, playerPosition.y || 1.2, playerPosition.z);
+            camera.rotation.y = playerRotation;
+            return;
+        }
+
         // Pick a new random room size
         const newSize = getRandomOpenspaceSize();
         console.log(`Crossed ${exitDirection} door, generating new ${newSize}x${newSize} room...`);
@@ -3420,9 +3614,13 @@ function updateStatsDisplay() {
                     <input type="checkbox" id="minimap-checkbox" ${minimapVisible ? 'checked' : ''}>
                     Show minimap
                 </label>
-                <label style="cursor: pointer; display: block;">
+                <label style="cursor: pointer; display: block; margin-bottom: 5px;">
                     <input type="checkbox" id="collisions-checkbox" ${collisionsEnabled ? 'checked' : ''}>
                     Wall collisions
+                </label>
+                <label style="cursor: pointer; display: block;">
+                    <input type="checkbox" id="random-scene-change-checkbox" ${randomSceneChange ? 'checked' : ''}>
+                    Random scene change
                 </label>
             </div>
             <hr style="border-color: #666; margin: 10px 0;">
@@ -3458,6 +3656,7 @@ function updateStatsDisplay() {
         const minimapCheckbox = statsDiv.querySelector('#minimap-checkbox');
         const collisionsCheckbox = statsDiv.querySelector('#collisions-checkbox');
         const randomCheckbox = statsDiv.querySelector('#random-images-checkbox');
+        const randomSceneChangeCheckbox = statsDiv.querySelector('#random-scene-change-checkbox');
         const topicControls = statsDiv.querySelector('#topic-controls');
         const topicInput = statsDiv.querySelector('#topic-input');
         const loadBtn = statsDiv.querySelector('#load-topic-btn');
@@ -3523,6 +3722,10 @@ function updateStatsDisplay() {
 
         collisionsCheckbox.addEventListener('change', (e) => {
             collisionsEnabled = e.target.checked;
+        });
+
+        randomSceneChangeCheckbox.addEventListener('change', (e) => {
+            randomSceneChange = e.target.checked;
         });
 
         randomCheckbox.addEventListener('change', (e) => {
