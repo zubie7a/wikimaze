@@ -103,6 +103,18 @@ function generateMaze(size) {
 let randomImageResults = [];
 let randomImageIndex = 0;
 
+// Generic utility: Process items in batches (for texture loading, etc.)
+// items: Array of items to process
+// processor: Async function that processes a single item (item) => Promise
+// batchSize: Number of items to process in parallel per batch
+async function processInBatches(items, processor, batchSize = 5) {
+    for (let i = 0; i < items.length; i += batchSize) {
+        const batch = items.slice(i, i + batchSize);
+        const promises = batch.map(item => processor(item));
+        await Promise.all(promises);
+    }
+}
+
 // Fetch a batch of random Wikipedia images
 async function fetchRandomImageBatch() {
     const maxAttempts = 3;
@@ -1043,20 +1055,18 @@ async function createMaze(wallData) {
             totalImagesToLoad += isEdgeWall ? 1 : 2;
         }
 
-        // Load Wikipedia images in BFS order from player start
-        for (const { wallKey, type } of wallsInOrder) {
-            // Check for cancellation or generation change (new maze was created)
+        // Helper function to process a single wall
+        const processWall = async ({ wallKey, type }) => {
+            // Check for cancellation or generation change
             if (cancelLoading || mazeGeneration !== myGeneration) {
-                console.log('Initial loading cancelled or generation changed');
-                isLoadingImages = false;
-                return;
+                return; // Early return - cancellation will be checked between batches
             }
 
             // Skip if already loaded (by on-demand loader)
-            if (wikipediaWalls.has(wallKey)) continue;
+            if (wikipediaWalls.has(wallKey)) return;
 
             const wall = wallMeshMap.get(wallKey);
-            if (!wall) continue;
+            if (!wall) return;
 
             // Reserve this wall to prevent race conditions
             wikipediaWalls.add(wallKey);
@@ -1095,7 +1105,10 @@ async function createMaze(wallData) {
                 }
 
                 const result = await getWikipediaImage();
-                if (cancelLoading || mazeGeneration !== myGeneration) { isLoadingImages = false; return; }
+                if (cancelLoading || mazeGeneration !== myGeneration) {
+                    wikipediaWalls.delete(wallKey);
+                    return;
+                }
                 if (result && result.imageUrl) {
                     await createFramedPicture(result.imageUrl, wall, type, side, result.title, wallKey);
                 } else {
@@ -1106,14 +1119,20 @@ async function createMaze(wallData) {
             } else {
                 // Internal wall: place images on both sides
                 const result1 = await getWikipediaImage();
-                if (cancelLoading || mazeGeneration !== myGeneration) { isLoadingImages = false; return; }
+                if (cancelLoading || mazeGeneration !== myGeneration) {
+                    wikipediaWalls.delete(wallKey);
+                    return;
+                }
                 if (result1 && result1.imageUrl) {
                     await createFramedPicture(result1.imageUrl, wall, type, 'positive', result1.title, wallKey);
                 }
                 loadedImagesCount++;
 
                 const result2 = await getWikipediaImage();
-                if (cancelLoading || mazeGeneration !== myGeneration) { isLoadingImages = false; return; }
+                if (cancelLoading || mazeGeneration !== myGeneration) {
+                    wikipediaWalls.delete(wallKey);
+                    return;
+                }
                 if (result2 && result2.imageUrl) {
                     await createFramedPicture(result2.imageUrl, wall, type, 'negative', result2.title, wallKey);
                 }
@@ -1124,6 +1143,16 @@ async function createMaze(wallData) {
                     wikipediaWalls.delete(wallKey);
                 }
             }
+        };
+
+        // Load Wikipedia images in BFS order from player start, in batches
+        await processInBatches(wallsInOrder, processWall, 5);
+
+        // Final check for cancellation
+        if (cancelLoading || mazeGeneration !== myGeneration) {
+            console.log('Initial loading cancelled or generation changed');
+            isLoadingImages = false;
+            return;
         }
 
         isLoadingImages = false;
@@ -2965,19 +2994,17 @@ async function reloadAllPaintings() {
         totalImagesToLoad += isEdgeWall ? 1 : 2;
     }
 
-    // Load images
-    for (const { wallKey, type } of wallsWithDistance) {
+    // Helper function to process a single wall
+    const processWall = async ({ wallKey, type }) => {
         // Check for cancellation or generation change
         if (cancelLoading || mazeGeneration !== myGeneration) {
-            console.log('Loading cancelled or generation changed');
-            isLoadingImages = false;
-            return;
+            return; // Early return - cancellation will be checked between batches
         }
 
-        if (wikipediaWalls.has(wallKey)) continue;
+        if (wikipediaWalls.has(wallKey)) return;
 
         const wall = globalWallMeshMap.get(wallKey);
-        if (!wall) continue;
+        if (!wall) return;
 
         wikipediaWalls.add(wallKey);
 
@@ -3007,7 +3034,10 @@ async function reloadAllPaintings() {
             }
 
             const result = await getWikipediaImage();
-            if (cancelLoading || mazeGeneration !== myGeneration) { isLoadingImages = false; return; }
+            if (cancelLoading || mazeGeneration !== myGeneration) {
+                wikipediaWalls.delete(wallKey);
+                return;
+            }
             if (result && result.imageUrl) {
                 await globalCreateFramedPicture(result.imageUrl, wall, type, side, result.title, wallKey);
             } else {
@@ -3016,14 +3046,20 @@ async function reloadAllPaintings() {
             loadedImagesCount++;
         } else {
             const result1 = await getWikipediaImage();
-            if (cancelLoading || mazeGeneration !== myGeneration) { isLoadingImages = false; return; }
+            if (cancelLoading || mazeGeneration !== myGeneration) {
+                wikipediaWalls.delete(wallKey);
+                return;
+            }
             if (result1 && result1.imageUrl) {
                 await globalCreateFramedPicture(result1.imageUrl, wall, type, 'positive', result1.title, wallKey);
             }
             loadedImagesCount++;
 
             const result2 = await getWikipediaImage();
-            if (cancelLoading || mazeGeneration !== myGeneration) { isLoadingImages = false; return; }
+            if (cancelLoading || mazeGeneration !== myGeneration) {
+                wikipediaWalls.delete(wallKey);
+                return;
+            }
             if (result2 && result2.imageUrl) {
                 await globalCreateFramedPicture(result2.imageUrl, wall, type, 'negative', result2.title, wallKey);
             }
@@ -3033,6 +3069,16 @@ async function reloadAllPaintings() {
                 wikipediaWalls.delete(wallKey);
             }
         }
+    };
+
+    // Load images in batches
+    await processInBatches(wallsWithDistance, processWall, 5);
+
+    // Final check for cancellation
+    if (cancelLoading || mazeGeneration !== myGeneration) {
+        console.log('Loading cancelled or generation changed');
+        isLoadingImages = false;
+        return;
     }
 
     isLoadingImages = false;

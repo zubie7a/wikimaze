@@ -100,125 +100,142 @@ class GalleryScene extends SceneController {
             window.galleryPaintingGroups = [];
         }
 
-        for (let i = 0; i < this.galleryWalls.length; i++) {
-            const wall = this.galleryWalls[i];
+        // Create array of wall indices for batching
+        const wallIndices = this.galleryWalls.map((_, i) => i);
 
-            // Get a Wikipedia image
-            const imageData = await getWikipediaImage();
-            if (!imageData || !imageData.imageUrl) {
-                if (typeof loadedImagesCount !== 'undefined') loadedImagesCount++;
-                continue;
-            }
+        // Load paintings in batches using generic utility
+        await processInBatches(
+            wallIndices,
+            (i) => this.createPaintingForWall(i, group, textureLoader, textureStyle),
+            5 // Batch size: 5 images at a time for better responsiveness
+        );
 
-            // Create painting frame
-            const frameWidth = 1.5;
-            const frameHeight = 1.2;
-            const frameDepth = 0.05;
+        console.log('Gallery painting load complete');
+        if (typeof isLoadingImages !== 'undefined') isLoadingImages = false;
+    }
 
-            // Frame
-            const frameGeometry = new THREE.BoxGeometry(frameWidth + 0.1, frameHeight + 0.1, frameDepth);
-            const frameMaterial = new THREE.MeshLambertMaterial({ color: 0x4A3728 });
-            const frame = new THREE.Mesh(frameGeometry, frameMaterial);
+    async createPaintingForWall(i, group, textureLoader, textureStyle) {
+        const wall = this.galleryWalls[i];
 
-            // Painting canvas
-            const canvasGeometry = new THREE.PlaneGeometry(frameWidth, frameHeight);
-            const canvasMaterial = new THREE.MeshLambertMaterial({ color: 0xffffff });
-            const canvas = new THREE.Mesh(canvasGeometry, canvasMaterial);
-            canvas.position.z = frameDepth / 2 + 0.001;
+        // Get a Wikipedia image
+        const imageData = await getWikipediaImage();
+        if (!imageData || !imageData.imageUrl) {
+            if (typeof loadedImagesCount !== 'undefined') loadedImagesCount++;
+            return;
+        }
 
-            // Load texture
+        // Create painting frame
+        const frameWidth = 1.5;
+        const frameHeight = 1.2;
+        const frameDepth = 0.05;
+
+        // Frame
+        const frameGeometry = new THREE.BoxGeometry(frameWidth + 0.1, frameHeight + 0.1, frameDepth);
+        const frameMaterial = new THREE.MeshLambertMaterial({ color: 0x4A3728 });
+        const frame = new THREE.Mesh(frameGeometry, frameMaterial);
+
+        // Painting canvas
+        const canvasGeometry = new THREE.PlaneGeometry(frameWidth, frameHeight);
+        const canvasMaterial = new THREE.MeshLambertMaterial({ color: 0xffffff });
+        const canvas = new THREE.Mesh(canvasGeometry, canvasMaterial);
+        canvas.position.z = frameDepth / 2 + 0.001;
+
+        // Load texture (convert callback to promise)
+        await new Promise((resolve) => {
             textureLoader.load(imageData.imageUrl, (texture) => {
                 canvas.material.map = texture;
                 canvas.material.needsUpdate = true;
+                resolve();
+            });
+        });
+
+        // Create title plate
+        const plateWidth = frameWidth * 0.8;
+        const plateHeight = 0.12;
+        const plateGeometry = new THREE.PlaneGeometry(plateWidth, plateHeight);
+
+        // Create canvas for title text (matching maze style)
+        const titleCanvas = document.createElement('canvas');
+        titleCanvas.width = 256;
+        titleCanvas.height = 32;
+        const ctx = titleCanvas.getContext('2d');
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)'; // Dark translucent
+        ctx.fillRect(0, 0, 256, 32);
+        ctx.fillStyle = 'white';
+        ctx.font = 'bold 12px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        // Truncate title if too long
+        let title = imageData.title || 'Untitled';
+        if (title.length > 30) title = title.substring(0, 27) + '...';
+        ctx.fillText(title, 128, 16);
+
+        const plateTexture = new THREE.CanvasTexture(titleCanvas);
+        const plateMaterial = new THREE.MeshBasicMaterial({
+            map: plateTexture,
+            transparent: true
+        });
+        const plate = new THREE.Mesh(plateGeometry, plateMaterial);
+        plate.position.y = -frameHeight / 2 - 0.12;
+        plate.position.z = frameDepth / 2 + 0.001;
+
+        // Group frame, canvas and plate
+        const paintingGroup = new THREE.Group();
+        paintingGroup.add(frame);
+        paintingGroup.add(canvas);
+        paintingGroup.add(plate);
+
+        // Position painting on wall (slightly in front of wall, toward center)
+        const wallAngle = wall.userData.angle;
+        const paintingDist = this.radius - 0.15; // Slightly in front of wall
+        const paintingX = Math.cos(wallAngle) * paintingDist;
+        const paintingZ = Math.sin(wallAngle) * paintingDist;
+        paintingGroup.position.set(paintingX, 1.2, paintingZ);
+
+        // Use lookAt to face the center
+        paintingGroup.lookAt(0, 1.2, 0);
+
+        group.add(paintingGroup);
+
+        // Track painting group for reload functionality
+        window.galleryPaintingGroups[i] = paintingGroup;
+
+        // Update progress tracking
+        if (typeof loadedImagesCount !== 'undefined') loadedImagesCount++;
+
+        // Add ceiling light above painting (backrooms only)
+        if (textureStyle === 'backrooms') {
+            const lampSize = 0.5; // Same as maze.js
+            const lampHeight = 0.05;
+            const lampY = this.wallHeight - 0.52; // Just below ceiling
+
+            // Same material as maze.js
+            const lampMaterial = new THREE.MeshBasicMaterial({
+                color: 0xFFFAE6, // Warm fluorescent white
+                side: THREE.DoubleSide
             });
 
-            // Create title plate
-            const plateWidth = frameWidth * 0.8;
-            const plateHeight = 0.12;
-            const plateGeometry = new THREE.PlaneGeometry(plateWidth, plateHeight);
+            // Create lamp fixture (square box like maze.js)
+            const lampGeometry = new THREE.BoxGeometry(lampSize, lampHeight, lampSize);
+            const lamp = new THREE.Mesh(lampGeometry, lampMaterial);
 
-            // Create canvas for title text (matching maze style)
-            const titleCanvas = document.createElement('canvas');
-            titleCanvas.width = 256;
-            titleCanvas.height = 32;
-            const ctx = titleCanvas.getContext('2d');
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.7)'; // Dark translucent
-            ctx.fillRect(0, 0, 256, 32);
-            ctx.fillStyle = 'white';
-            ctx.font = 'bold 12px Arial';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            // Truncate title if too long
-            let title = imageData.title || 'Untitled';
-            if (title.length > 30) title = title.substring(0, 27) + '...';
-            ctx.fillText(title, 128, 16);
+            // Position above painting (slightly inward toward center)
+            const lampDist = this.radius - 0.8;
+            const lampX = Math.cos(wallAngle) * lampDist;
+            const lampZ = Math.sin(wallAngle) * lampDist;
+            lamp.position.set(lampX, lampY, lampZ);
 
-            const plateTexture = new THREE.CanvasTexture(titleCanvas);
-            const plateMaterial = new THREE.MeshBasicMaterial({
-                map: plateTexture,
-                transparent: true
-            });
-            const plate = new THREE.Mesh(plateGeometry, plateMaterial);
-            plate.position.y = -frameHeight / 2 - 0.12;
-            plate.position.z = frameDepth / 2 + 0.001;
+            // Rotate to face center (same as walls)
+            lamp.lookAt(0, lampY, 0);
 
-            // Group frame, canvas and plate
-            const paintingGroup = new THREE.Group();
-            paintingGroup.add(frame);
-            paintingGroup.add(canvas);
-            paintingGroup.add(plate);
+            group.add(lamp);
 
-            // Position painting on wall (slightly in front of wall, toward center)
-            const wallAngle = wall.userData.angle;
-            const paintingDist = this.radius - 0.15; // Slightly in front of wall
-            const paintingX = Math.cos(wallAngle) * paintingDist;
-            const paintingZ = Math.sin(wallAngle) * paintingDist;
-            paintingGroup.position.set(paintingX, 1.2, paintingZ);
-
-            // Use lookAt to face the center
-            paintingGroup.lookAt(0, 1.2, 0);
-
-            group.add(paintingGroup);
-
-            // Track painting group for reload functionality
-            window.galleryPaintingGroups[i] = paintingGroup;
-
-            // Update progress tracking
-            if (typeof loadedImagesCount !== 'undefined') loadedImagesCount++;
-
-            // Add ceiling light above painting (backrooms only)
-            if (textureStyle === 'backrooms') {
-                const lampSize = 0.5; // Same as maze.js
-                const lampHeight = 0.05;
-                const lampY = this.wallHeight - 0.52; // Just below ceiling
-
-                // Same material as maze.js
-                const lampMaterial = new THREE.MeshBasicMaterial({
-                    color: 0xFFFAE6, // Warm fluorescent white
-                    side: THREE.DoubleSide
-                });
-
-                // Create lamp fixture (square box like maze.js)
-                const lampGeometry = new THREE.BoxGeometry(lampSize, lampHeight, lampSize);
-                const lamp = new THREE.Mesh(lampGeometry, lampMaterial);
-
-                // Position above painting (slightly inward toward center)
-                const lampDist = this.radius - 0.8;
-                const lampX = Math.cos(wallAngle) * lampDist;
-                const lampZ = Math.sin(wallAngle) * lampDist;
-                lamp.position.set(lampX, lampY, lampZ);
-
-                // Rotate to face center (same as walls)
-                lamp.lookAt(0, lampY, 0);
-
-                group.add(lamp);
-
-                // Add point light below lamp (same as maze.js)
-                const lampLight = new THREE.PointLight(0xFFF5E0, 0.8, 5, 1.5);
-                lampLight.position.set(lampX, lampY - 0.1, lampZ);
-                group.add(lampLight);
-            }
+            // Add point light below lamp (same as maze.js)
+            const lampLight = new THREE.PointLight(0xFFF5E0, 0.8, 5, 1.5);
+            lampLight.position.set(lampX, lampY - 0.1, lampZ);
+            group.add(lampLight);
         }
+    }
 
         console.log('Gallery painting load complete');
         if (typeof isLoadingImages !== 'undefined') isLoadingImages = false;

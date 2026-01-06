@@ -147,18 +147,16 @@ class CathedralScene extends SceneController {
         const sortedRows = Object.keys(wallsByRow).map(Number).sort((a, b) => a - b);
         console.log('Loading', sortedRows.length, 'floors');
 
-        const BATCH_SIZE = 5; // Load 5 images at a time for better responsiveness
-
         for (const row of sortedRows) {
             const wallsInRow = wallsByRow[row];
             console.log('Loading floor', row, 'with', wallsInRow.length, 'walls');
 
-            // Load paintings in batches for better responsiveness
-            for (let i = 0; i < wallsInRow.length; i += BATCH_SIZE) {
-                const batch = wallsInRow.slice(i, i + BATCH_SIZE);
-                const paintingPromises = batch.map(wall => this.createPaintingForWall(wall, group, textureLoader, textureStyle));
-                await Promise.all(paintingPromises);
-            }
+            // Load paintings in batches using generic utility
+            await processInBatches(
+                wallsInRow,
+                (wall) => this.createPaintingForWall(wall, group, textureLoader, textureStyle),
+                5 // Batch size: 5 images at a time for better responsiveness
+            );
         }
 
         console.log('Cathedral painting load complete');
