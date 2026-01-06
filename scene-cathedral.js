@@ -4,7 +4,7 @@
 class CathedralScene extends SceneController {
     constructor() {
         super('cathedral');
-        this.gridWidth = 10; // Number of painting columns per wall
+        this.gridWidth = 5; // Number of painting columns per wall
         this.gridHeight = 20; // Number of painting rows per wall
         this.wallSegments = []; // Store all wall segment references
         this.segmentWidth = null; // Will be calculated based on room size
@@ -143,13 +143,18 @@ class CathedralScene extends SceneController {
         const sortedRows = Object.keys(wallsByRow).map(Number).sort((a, b) => a - b);
         console.log('Loading', sortedRows.length, 'floors');
 
+        const BATCH_SIZE = 5; // Load 5 images at a time for better responsiveness
+
         for (const row of sortedRows) {
             const wallsInRow = wallsByRow[row];
             console.log('Loading floor', row, 'with', wallsInRow.length, 'walls');
 
-            // Load all paintings on this floor simultaneously using Promise.all
-            const paintingPromises = wallsInRow.map(wall => this.createPaintingForWall(wall, group, textureLoader, textureStyle));
-            await Promise.all(paintingPromises);
+            // Load paintings in batches for better responsiveness
+            for (let i = 0; i < wallsInRow.length; i += BATCH_SIZE) {
+                const batch = wallsInRow.slice(i, i + BATCH_SIZE);
+                const paintingPromises = batch.map(wall => this.createPaintingForWall(wall, group, textureLoader, textureStyle));
+                await Promise.all(paintingPromises);
+            }
         }
 
         console.log('Cathedral painting load complete');
