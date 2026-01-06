@@ -32,7 +32,7 @@ class OpenspaceScene extends SceneController {
         const doorY = doorHeight / 2 - 0.5;
 
         const doorMaterial = new THREE.MeshBasicMaterial({
-            color: 0x000000,
+            color: textureStyle === 'entirewall' ? 0xffffff : 0x000000,
             side: THREE.DoubleSide
         });
 

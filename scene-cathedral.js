@@ -67,7 +67,7 @@ class CathedralScene extends SceneController {
         const doorHeight = this.segmentHeight * 0.85;
         const doorY = doorHeight / 2 - 0.5;
         const doorMaterial = new THREE.MeshBasicMaterial({
-            color: 0x000000,
+            color: textureStyle === 'entirewall' ? 0xffffff : 0x000000,
             side: THREE.DoubleSide
         });
 
@@ -361,6 +361,57 @@ class CathedralScene extends SceneController {
             return;
         }
 
+        // ENTIRE WALL STYLE: Image covers entire wall segment, no frame, no aspect ratio preservation
+        if (textureStyle === 'entirewall') {
+            const pictureGeometry = new THREE.PlaneGeometry(this.segmentWidth, this.segmentHeight);
+
+            // Load texture
+            const texture = await new Promise((resolve) => {
+                textureLoader.load(imageData.imageUrl, (tex) => resolve(tex));
+            });
+
+            // Check for cancellation after async call
+            if ((typeof cancelLoading !== 'undefined' && cancelLoading) ||
+                (typeof mazeGeneration !== 'undefined' && myGeneration !== undefined && mazeGeneration !== myGeneration)) {
+                return;
+            }
+
+            const pictureMaterial = new THREE.MeshLambertMaterial({
+                map: texture,
+                side: THREE.DoubleSide
+            });
+            const picture = new THREE.Mesh(pictureGeometry, pictureMaterial);
+
+            // Position on wall (slightly in front, facing inward toward center)
+            picture.position.copy(wall.position);
+
+            // Adjust position based on wall direction to keep paintings inside room
+            if (wall.userData.direction === 'north') {
+                picture.position.z -= 0.01;
+            } else if (wall.userData.direction === 'south') {
+                picture.position.z += 0.01;
+            } else if (wall.userData.direction === 'east') {
+                picture.position.x -= 0.01;
+            } else if (wall.userData.direction === 'west') {
+                picture.position.x += 0.01;
+            }
+
+            picture.rotation.y = wall.rotation.y;
+
+            group.add(picture);
+
+            // Track painting by wall index
+            if (window.cathedralPaintingMap) {
+                window.cathedralPaintingMap.set(wallIndex, picture);
+            }
+            window.cathedralPaintingGroups.push(picture);
+
+            // Update progress tracking
+            if (typeof loadedImagesCount !== 'undefined') loadedImagesCount++;
+            return;
+        }
+
+        // W95 and BACKROOMS STYLE: Framed picture with aspect ratio preserved
         // Load texture and get dimensions for aspect ratio
         let texture;
         await new Promise((resolve) => {

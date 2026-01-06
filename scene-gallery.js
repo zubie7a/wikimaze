@@ -27,7 +27,7 @@ class GalleryScene extends SceneController {
         const randomConfig = configs[Math.floor(Math.random() * configs.length)];
         this.numSides = randomConfig.numSides;
         this.radius = randomConfig.radius;
-        
+
         console.log('Gallery createContent called', { textureStyle, size, numSides: this.numSides, radius: this.radius });
         this.galleryWalls = [];
 
@@ -87,7 +87,7 @@ class GalleryScene extends SceneController {
         const doorHeight = this.wallHeight * 0.85;
         const doorY = doorHeight / 2 - 0.5;
         const doorMaterial = new THREE.MeshBasicMaterial({
-            color: 0x000000,
+            color: textureStyle === 'entirewall' ? 0xffffff : 0x000000,
             side: THREE.DoubleSide
         });
 
@@ -105,8 +105,8 @@ class GalleryScene extends SceneController {
         const door2X = Math.cos(doorWall2Angle) * this.radius;
         const door2Z = Math.sin(doorWall2Angle) * this.radius;
 
-        // Position doors slightly in front of walls to avoid texture overlap
-        const doorOffset = 0.1; // Move doors slightly inward from wall surface
+        // Position doors very close to walls
+        const doorOffset = 0.02; // Move doors slightly inward from wall surface
         const door1XOffset = Math.cos(doorWall1Angle) * doorOffset;
         const door1ZOffset = Math.sin(doorWall1Angle) * doorOffset;
         const door2XOffset = Math.cos(doorWall2Angle) * doorOffset;
@@ -215,6 +215,46 @@ class GalleryScene extends SceneController {
             return;
         }
 
+        // Calculate wall dimensions for entirewall mode
+        const angleStep = (Math.PI * 2) / this.numSides;
+        const wallWidth = 2 * this.radius * Math.tan(angleStep / 2);
+
+        if (textureStyle === 'entirewall') {
+            // ENTIRE WALL STYLE: Image covers entire wall face, no frame, no aspect ratio preservation
+            const pictureGeometry = new THREE.PlaneGeometry(wallWidth, this.wallHeight);
+
+            // Load texture
+            const texture = await new Promise((resolve) => {
+                textureLoader.load(imageData.imageUrl, (tex) => resolve(tex));
+            });
+
+            const pictureMaterial = new THREE.MeshLambertMaterial({
+                map: texture,
+                side: THREE.DoubleSide
+            });
+            const picture = new THREE.Mesh(pictureGeometry, pictureMaterial);
+
+            // Position on wall (slightly in front, toward center)
+            const wallAngle = wall.userData.angle;
+            const paintingDist = this.radius - 0.01; // Very close to wall
+            const paintingX = Math.cos(wallAngle) * paintingDist;
+            const paintingZ = Math.sin(wallAngle) * paintingDist;
+            picture.position.set(paintingX, this.wallHeight / 2 - 0.5, paintingZ);
+
+            // Use lookAt to face the center
+            picture.lookAt(0, this.wallHeight / 2 - 0.5, 0);
+
+            group.add(picture);
+
+            // Track for reload functionality
+            window.galleryPaintingGroups[i] = picture;
+
+            // Update progress tracking
+            if (typeof loadedImagesCount !== 'undefined') loadedImagesCount++;
+            return;
+        }
+
+        // W95 and BACKROOMS STYLE: Framed picture
         // Create painting frame
         const frameWidth = 1.5;
         const frameHeight = 1.2;
