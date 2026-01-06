@@ -5,7 +5,7 @@ class GalleryScene extends SceneController {
     constructor() {
         super('gallery');
         this.numSides = 20; // 20-sided polygon
-        this.radius = 20; // Distance from center to walls
+        this.radius = 10; // Distance from center to walls
         this.wallHeight = 3; // Same as WALL_HEIGHT in maze.js
         this.galleryWalls = []; // Store wall meshes for painting loading
     }
@@ -73,6 +73,74 @@ class GalleryScene extends SceneController {
             group.add(wall);
         }
 
+        // Add doors to two opposing walls (wall 0 and wall 10, which are opposite in 20-sided polygon)
+        // Use same door size as openspace
+        const doorWidth = CELL_SIZE * 0.6;
+        const doorHeight = this.wallHeight * 0.85;
+        const doorY = doorHeight / 2 - 0.5;
+        const doorMaterial = new THREE.MeshBasicMaterial({
+            color: 0x000000,
+            side: THREE.DoubleSide
+        });
+
+        // Calculate door positions for two opposing walls
+        const doorWall1Index = 0;
+        const doorWall2Index = Math.floor(this.numSides / 2); // Opposite wall
+        const doorWall1Angle = doorWall1Index * angleStep + angleStep / 2;
+        const doorWall2Angle = doorWall2Index * angleStep + angleStep / 2;
+
+        // Door 1 position (at wall radius)
+        const door1X = Math.cos(doorWall1Angle) * this.radius;
+        const door1Z = Math.sin(doorWall1Angle) * this.radius;
+
+        // Door 2 position (at wall radius)
+        const door2X = Math.cos(doorWall2Angle) * this.radius;
+        const door2Z = Math.sin(doorWall2Angle) * this.radius;
+
+        // Position doors slightly in front of walls to avoid texture overlap
+        const doorOffset = 0.1; // Move doors slightly inward from wall surface
+        const door1XOffset = Math.cos(doorWall1Angle) * doorOffset;
+        const door1ZOffset = Math.sin(doorWall1Angle) * doorOffset;
+        const door2XOffset = Math.cos(doorWall2Angle) * doorOffset;
+        const door2ZOffset = Math.sin(doorWall2Angle) * doorOffset;
+
+        // Create door 1
+        const door1 = new THREE.Mesh(
+            new THREE.PlaneGeometry(doorWidth, doorHeight),
+            doorMaterial.clone()
+        );
+        door1.position.set(door1X - door1XOffset, doorY, door1Z - door1ZOffset);
+        door1.lookAt(0, doorY, 0);
+        group.add(door1);
+
+        // Create door 2
+        const door2 = new THREE.Mesh(
+            new THREE.PlaneGeometry(doorWidth, doorHeight),
+            doorMaterial.clone()
+        );
+        door2.position.set(door2X - door2XOffset, doorY, door2Z - door2ZOffset);
+        door2.lookAt(0, doorY, 0);
+        group.add(door2);
+
+        // Store door positions globally for crossing detection
+        // Doors are on the circle, so we check if player is at the door radius
+        window.galleryDoors = {
+            door1: {
+                x: door1X,
+                z: door1Z,
+                angle: doorWall1Angle,
+                wallIndex: doorWall1Index
+            },
+            door2: {
+                x: door2X,
+                z: door2Z,
+                angle: doorWall2Angle,
+                wallIndex: doorWall2Index
+            },
+            doorWidth: doorWidth,
+            doorRadius: this.radius
+        };
+
         // Store reference for painting loading
         window.galleryWalls = this.galleryWalls;
         window.galleryRadius = this.radius;
@@ -83,7 +151,8 @@ class GalleryScene extends SceneController {
         try {
             isLoadingImages = true;
             loadedImagesCount = 0;
-            totalImagesToLoad = this.numSides;
+            // Subtract 2 for the door walls that won't have paintings
+            totalImagesToLoad = this.numSides - 2;
         } catch (e) {
             console.log('Global loading counters not available yet');
         }
@@ -116,6 +185,14 @@ class GalleryScene extends SceneController {
 
     async createPaintingForWall(i, group, textureLoader, textureStyle) {
         const wall = this.galleryWalls[i];
+
+        // Skip painting on door walls
+        if (window.galleryDoors) {
+            if (i === window.galleryDoors.door1.wallIndex || i === window.galleryDoors.door2.wallIndex) {
+                if (typeof loadedImagesCount !== 'undefined') loadedImagesCount++;
+                return;
+            }
+        }
 
         // Get a Wikipedia image
         const imageData = await getWikipediaImage();
@@ -305,9 +382,9 @@ class GalleryScene extends SceneController {
         return { x: 0, z: 0, rotation: 0 };
     }
 
-    // No minimap for gallery
+    // Show minimap for gallery
     showMinimap() {
-        return false;
+        return true;
     }
 }
 

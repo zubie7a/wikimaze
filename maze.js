@@ -1826,6 +1826,40 @@ function isValidPosition(x, z) {
         // Gallery mode: circular boundary based on gallery radius
         const galleryRadius = window.galleryRadius || 20;
         const distFromCenter = Math.sqrt(x * x + z * z);
+        
+        // Check if player is at a door - allow passing through
+        if (window.galleryDoors && distFromCenter >= galleryRadius - playerRadius - 0.1) {
+            const doors = window.galleryDoors;
+            const playerAngle = Math.atan2(z, x);
+            
+            // Normalize angles
+            const normalizeAngle = (angle) => {
+                while (angle < 0) angle += 2 * Math.PI;
+                while (angle >= 2 * Math.PI) angle -= 2 * Math.PI;
+                return angle;
+            };
+            
+            const playerAngleNorm = normalizeAngle(playerAngle);
+            const door1AngleNorm = normalizeAngle(doors.door1.angle);
+            const door2AngleNorm = normalizeAngle(doors.door2.angle);
+            
+            // Check if near door 1
+            let angleDiff1 = Math.abs(playerAngleNorm - door1AngleNorm);
+            if (angleDiff1 > Math.PI) angleDiff1 = 2 * Math.PI - angleDiff1;
+            const door1WidthRad = (doors.doorWidth / doors.doorRadius) / 2;
+            
+            // Check if near door 2
+            let angleDiff2 = Math.abs(playerAngleNorm - door2AngleNorm);
+            if (angleDiff2 > Math.PI) angleDiff2 = 2 * Math.PI - angleDiff2;
+            const door2WidthRad = (doors.doorWidth / doors.doorRadius) / 2;
+            
+            // Allow passing through if at a door
+            if (angleDiff1 < door1WidthRad + 0.1 || angleDiff2 < door2WidthRad + 0.1) {
+                return true; // Allow movement through door
+            }
+        }
+        
+        // Normal boundary check
         if (distFromCenter > galleryRadius - playerRadius) {
             return false;
         }
@@ -2370,6 +2404,43 @@ function updateMovement() {
                                 handleOpenspaceDoorCrossing(exitDirection);
                             }
                         }
+
+                        // Door crossing for gallery mode (auto)
+                        if (sceneMode === 'gallery' && window.galleryDoors && !isTransitioningRoom) {
+                            const doors = window.galleryDoors;
+                            const playerDist = Math.sqrt(playerPosition.x * playerPosition.x + playerPosition.z * playerPosition.z);
+                            const playerRadius = 0.4;
+                            
+                            // Only trigger if player is very close to or past the door radius
+                            if (playerDist >= doors.doorRadius - playerRadius && playerDist <= doors.doorRadius + 0.3) {
+                                const playerAngle = Math.atan2(playerPosition.z, playerPosition.x);
+                                
+                                // Normalize angles
+                                const normalizeAngle = (angle) => {
+                                    while (angle < 0) angle += 2 * Math.PI;
+                                    while (angle >= 2 * Math.PI) angle -= 2 * Math.PI;
+                                    return angle;
+                                };
+                                
+                                const playerAngleNorm = normalizeAngle(playerAngle);
+                                const door1AngleNorm = normalizeAngle(doors.door1.angle);
+                                const door2AngleNorm = normalizeAngle(doors.door2.angle);
+                                
+                                let angleDiff1 = Math.abs(playerAngleNorm - door1AngleNorm);
+                                if (angleDiff1 > Math.PI) angleDiff1 = 2 * Math.PI - angleDiff1;
+                                const door1WidthRad = (doors.doorWidth / doors.doorRadius) / 2;
+                                
+                                let angleDiff2 = Math.abs(playerAngleNorm - door2AngleNorm);
+                                if (angleDiff2 > Math.PI) angleDiff2 = 2 * Math.PI - angleDiff2;
+                                const door2WidthRad = (doors.doorWidth / doors.doorRadius) / 2;
+                                
+                                if (angleDiff1 < door1WidthRad + 0.1) {
+                                    handleGalleryDoorCrossing(doors.door1.wallIndex);
+                                } else if (angleDiff2 < door2WidthRad + 0.1) {
+                                    handleGalleryDoorCrossing(doors.door2.wallIndex);
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -2476,6 +2547,47 @@ function updateMovement() {
 
         if (exitDirection) {
             handleOpenspaceDoorCrossing(exitDirection);
+        }
+    }
+
+    // Door crossing for gallery mode
+    if (sceneMode === 'gallery' && window.galleryDoors) {
+        const doors = window.galleryDoors;
+        const playerDist = Math.sqrt(playerPosition.x * playerPosition.x + playerPosition.z * playerPosition.z);
+        const playerRadius = 0.4; // Player collision radius
+        
+        // Check if player is at or beyond the door radius (collision allows getting close)
+        // Player can reach galleryRadius - playerRadius, so check if they're at door radius
+        if (playerDist >= doors.doorRadius - playerRadius - 0.1 && playerDist <= doors.doorRadius + 0.5) {
+            // Calculate angle to player
+            const playerAngle = Math.atan2(playerPosition.z, playerPosition.x);
+            
+            // Normalize angles to 0-2π range
+            const normalizeAngle = (angle) => {
+                while (angle < 0) angle += 2 * Math.PI;
+                while (angle >= 2 * Math.PI) angle -= 2 * Math.PI;
+                return angle;
+            };
+            
+            const playerAngleNorm = normalizeAngle(playerAngle);
+            const door1AngleNorm = normalizeAngle(doors.door1.angle);
+            const door2AngleNorm = normalizeAngle(doors.door2.angle);
+            
+            // Check distance to door 1 (angular distance)
+            let angleDiff1 = Math.abs(playerAngleNorm - door1AngleNorm);
+            if (angleDiff1 > Math.PI) angleDiff1 = 2 * Math.PI - angleDiff1;
+            const door1WidthRad = (doors.doorWidth / doors.doorRadius) / 2;
+            
+            // Check distance to door 2 (angular distance)
+            let angleDiff2 = Math.abs(playerAngleNorm - door2AngleNorm);
+            if (angleDiff2 > Math.PI) angleDiff2 = 2 * Math.PI - angleDiff2;
+            const door2WidthRad = (doors.doorWidth / doors.doorRadius) / 2;
+            
+            if (angleDiff1 < door1WidthRad + 0.1) { // Add small tolerance
+                handleGalleryDoorCrossing(doors.door1.wallIndex);
+            } else if (angleDiff2 < door2WidthRad + 0.1) { // Add small tolerance
+                handleGalleryDoorCrossing(doors.door2.wallIndex);
+            }
         }
     }
 
@@ -3100,6 +3212,55 @@ async function handleAlleyCrossing() {
 
 // Handle crossing openspace door - generate new room with random size
 // exitDirection: 'north', 'south', 'east', 'west' - which door the player exited through
+// Handle crossing gallery door - regenerate gallery
+async function handleGalleryDoorCrossing(exitDoorWallIndex) {
+    if (sceneMode !== 'gallery') return;
+
+    // Prevent concurrent door crossings
+    if (isTransitioningRoom) {
+        console.log('Already transitioning gallery, ignoring duplicate call');
+        return;
+    }
+    isTransitioningRoom = true;
+
+    try {
+        console.log(`Crossed gallery door at wall ${exitDoorWallIndex}, regenerating gallery...`);
+
+        // Regenerate the entire gallery scene
+        await regenerateScene();
+
+        // Position player at the opposite door, but slightly inside to avoid immediate re-trigger
+        const doors = window.galleryDoors;
+        if (doors) {
+            // Find the opposite door
+            const oppositeDoor = exitDoorWallIndex === doors.door1.wallIndex ? doors.door2 : doors.door1;
+            
+            // Position player slightly inside the room (away from door) to prevent immediate re-trigger
+            // Similar to openspace doorOffset - position them inside, not at the door
+            const doorOffset = 1.0; // Distance inside from door
+            const spawnDist = doors.doorRadius - doorOffset;
+            playerPosition.x = Math.cos(oppositeDoor.angle) * spawnDist;
+            playerPosition.z = Math.sin(oppositeDoor.angle) * spawnDist;
+            
+            // Face player toward center (0, 0)
+            // Movement uses: moveX = -sin(rotation), moveZ = -cos(rotation)
+            // To face center, we want to move in direction (-x, -z) from current position
+            // So: -sin(rotation) = -x/|v|, -cos(rotation) = -z/|v|
+            // Which means: sin(rotation) = x/|v|, cos(rotation) = z/|v|
+            // So: rotation = atan2(x, z)
+            playerRotation = Math.atan2(playerPosition.x, playerPosition.z);
+        }
+
+        camera.position.set(playerPosition.x, playerPosition.y || 1.2, playerPosition.z);
+        camera.rotation.y = playerRotation;
+        
+        // Small delay to ensure transition flag is cleared after positioning
+        await new Promise(resolve => setTimeout(resolve, 100));
+    } finally {
+        isTransitioningRoom = false;
+    }
+}
+
 async function handleOpenspaceDoorCrossing(exitDirection) {
     if (sceneMode !== 'openspace') return;
 
