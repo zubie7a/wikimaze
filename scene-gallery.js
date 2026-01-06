@@ -230,15 +230,11 @@ class GalleryScene extends SceneController {
 
             group.add(lamp);
 
-            // Add point light below lamp (same as maze.js)
-            const lampLight = new THREE.PointLight(0xFFF5E0, 0.8, 5, 1.5);
+            // Add point light below lamp (stronger for gallery)
+            const lampLight = new THREE.PointLight(0xFFF5E0, 1.5, 8, 1.5);
             lampLight.position.set(lampX, lampY - 0.1, lampZ);
             group.add(lampLight);
         }
-    }
-
-        console.log('Gallery painting load complete');
-        if (typeof isLoadingImages !== 'undefined') isLoadingImages = false;
     }
 
     getFloorMaterial(textureStyle) {
@@ -300,7 +296,7 @@ class GalleryScene extends SceneController {
         return {
             background: 0x000000,
             fog: null,
-            ambientIntensity: 0.8 // Brighter for gallery
+            ambientIntensity: 1.2 // Stronger ambient light for gallery
         };
     }
 
