@@ -61,7 +61,7 @@ class CathedralScene extends SceneController {
         window.cathedralRoomWidth = this.roomWidth;
 
         // Create doors at 2 random ground-level (row 0) wall segments
-        // Pick from all 4 walls: north, south, east, west - each has gridWidth columns
+        // Pick from 2 different walls to ensure doors aren't on the same side
         const directions = ['north', 'south', 'east', 'west'];
         const doorWidth = CELL_SIZE * 0.6;
         const doorHeight = this.segmentHeight * 0.85;
@@ -71,23 +71,17 @@ class CathedralScene extends SceneController {
             side: THREE.DoubleSide
         });
 
-        // Build list of all ground-level segments (row 0)
-        const groundSegments = [];
-        for (const dir of directions) {
-            for (let col = 0; col < this.gridWidth; col++) {
-                groundSegments.push({ direction: dir, col: col });
-            }
-        }
+        // Pick 2 different wall directions
+        const shuffledDirs = [...directions].sort(() => Math.random() - 0.5);
+        const door1Dir = shuffledDirs[0];
+        const door2Dir = shuffledDirs[1];
 
-        // Pick 2 random, non-adjacent segments
-        const door1Idx = Math.floor(Math.random() * groundSegments.length);
-        let door2Idx;
-        do {
-            door2Idx = Math.floor(Math.random() * groundSegments.length);
-        } while (door2Idx === door1Idx);
+        // Pick random column within each direction
+        const door1Col = Math.floor(Math.random() * this.gridWidth);
+        const door2Col = Math.floor(Math.random() * this.gridWidth);
 
-        const door1Segment = groundSegments[door1Idx];
-        const door2Segment = groundSegments[door2Idx];
+        const door1Segment = { direction: door1Dir, col: door1Col };
+        const door2Segment = { direction: door2Dir, col: door2Col };
 
         // Calculate door positions based on wall direction
         const getDoorPosition = (segment) => {
