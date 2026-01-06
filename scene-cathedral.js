@@ -62,6 +62,7 @@ class CathedralScene extends SceneController {
         // Load paintings on cathedral walls
         // Initialize progress tracking (global variables from maze.js)
         try {
+            isLoadingImages = true;
             loadedImagesCount = 0;
             totalImagesToLoad = this.gridWidth * this.gridHeight * 4; // 4 walls
         } catch (e) {
@@ -152,6 +153,7 @@ class CathedralScene extends SceneController {
         }
 
         console.log('Cathedral painting load complete');
+        if (typeof isLoadingImages !== 'undefined') isLoadingImages = false;
     }
 
     async createPaintingForWall(wall, group, textureLoader, textureStyle) {

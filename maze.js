@@ -923,6 +923,12 @@ async function createMaze(wallData) {
     // Asynchronously load Wikipedia images and create framed pictures
     // Use BFS from initial position to order wall loading
     (async () => {
+        // Gallery and Cathedral scenes handle their own painting loading in createContent
+        // Skip this IIFE to avoid overwriting their loading state
+        if (sceneMode === 'gallery' || sceneMode === 'cathedral') {
+            return;
+        }
+
         // Capture current generation to detect if we've been invalidated
         const myGeneration = mazeGeneration;
 

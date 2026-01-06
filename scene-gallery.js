@@ -79,6 +79,15 @@ class GalleryScene extends SceneController {
         window.galleryNumSides = this.numSides;
 
         // Load paintings on gallery walls
+        // Initialize progress tracking (global variables from maze.js)
+        try {
+            isLoadingImages = true;
+            loadedImagesCount = 0;
+            totalImagesToLoad = this.numSides;
+        } catch (e) {
+            console.log('Global loading counters not available yet');
+        }
+
         this.sceneGroup = group;
         this.loadGalleryPaintings(group, textureStyle);
     }
@@ -210,6 +219,9 @@ class GalleryScene extends SceneController {
                 group.add(lampLight);
             }
         }
+
+        console.log('Gallery painting load complete');
+        if (typeof isLoadingImages !== 'undefined') isLoadingImages = false;
     }
 
     getFloorMaterial(textureStyle) {
