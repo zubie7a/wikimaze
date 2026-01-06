@@ -257,67 +257,70 @@ async function createMaze(wallData) {
     // Reset creepy eyes (will be populated by alley or openspace+backrooms)
     creepyEyes = [];
 
-    // Create floor - color/texture depends on texture style
-    const floorGeometry = new THREE.PlaneGeometry(
-        SIZE * CELL_SIZE,
-        SIZE * CELL_SIZE
-    );
-    let floorMaterial;
-    if (textureStyle === 'entirewall') {
-        floorMaterial = new THREE.MeshLambertMaterial({ color: 0xE8E8E8 }); // Whiteish
-    } else if (textureStyle === 'backrooms') {
-        // Backrooms carpet texture
-        const floorTextureLoader = new THREE.TextureLoader();
-        const floorTexture = floorTextureLoader.load(
-            'https://i.imgur.com/tSS8RvD.jpeg',
-            function (texture) {
-                texture.wrapS = THREE.RepeatWrapping;
-                texture.wrapT = THREE.RepeatWrapping;
-                texture.repeat.set(SIZE * 2, SIZE * 2); // Tile the carpet
-            }
+    // Skip default floor/ceiling for gallery mode (it creates its own circular one)
+    if (sceneMode !== 'gallery') {
+        // Create floor - color/texture depends on texture style
+        const floorGeometry = new THREE.PlaneGeometry(
+            SIZE * CELL_SIZE,
+            SIZE * CELL_SIZE
         );
-        floorMaterial = new THREE.MeshLambertMaterial({ map: floorTexture });
-    } else {
-        floorMaterial = new THREE.MeshLambertMaterial({ color: 0x8B4513 }); // Brown (W95)
-    }
-    const floor = new THREE.Mesh(floorGeometry, floorMaterial);
-    floor.rotation.x = -Math.PI / 2;
-    floor.position.y = -0.5;
-    group.add(floor);
+        let floorMaterial;
+        if (textureStyle === 'entirewall') {
+            floorMaterial = new THREE.MeshLambertMaterial({ color: 0xE8E8E8 }); // Whiteish
+        } else if (textureStyle === 'backrooms') {
+            // Backrooms carpet texture
+            const floorTextureLoader = new THREE.TextureLoader();
+            const floorTexture = floorTextureLoader.load(
+                'https://i.imgur.com/tSS8RvD.jpeg',
+                function (texture) {
+                    texture.wrapS = THREE.RepeatWrapping;
+                    texture.wrapT = THREE.RepeatWrapping;
+                    texture.repeat.set(SIZE * 2, SIZE * 2); // Tile the carpet
+                }
+            );
+            floorMaterial = new THREE.MeshLambertMaterial({ map: floorTexture });
+        } else {
+            floorMaterial = new THREE.MeshLambertMaterial({ color: 0x8B4513 }); // Brown (W95)
+        }
+        const floor = new THREE.Mesh(floorGeometry, floorMaterial);
+        floor.rotation.x = -Math.PI / 2;
+        floor.position.y = -0.5;
+        group.add(floor);
 
-    // Create ceiling - texture/color depends on texture style
-    const ceilingGeometry = new THREE.PlaneGeometry(
-        SIZE * CELL_SIZE,
-        SIZE * CELL_SIZE
-    );
-    let ceilingMaterial;
-    if (textureStyle === 'entirewall') {
-        ceilingMaterial = new THREE.MeshLambertMaterial({
-            color: 0x505050 // Grayish
-        });
-    } else if (textureStyle === 'backrooms') {
-        ceilingMaterial = new THREE.MeshLambertMaterial({
-            color: 0xF5F5DC // Fluorescent off-white/beige
-        });
-    } else {
-        // W95 style - use ceiling texture
-        const ceilingTextureLoader = new THREE.TextureLoader();
-        const ceilingTexture = ceilingTextureLoader.load(
-            'https://i.imgur.com/yd7jpxq.jpeg',
-            function (texture) {
-                texture.wrapS = THREE.RepeatWrapping;
-                texture.wrapT = THREE.RepeatWrapping;
-                texture.repeat.set(SIZE, SIZE); // Tile based on maze size
-            }
+        // Create ceiling - texture/color depends on texture style
+        const ceilingGeometry = new THREE.PlaneGeometry(
+            SIZE * CELL_SIZE,
+            SIZE * CELL_SIZE
         );
-        ceilingMaterial = new THREE.MeshLambertMaterial({
-            map: ceilingTexture
-        });
+        let ceilingMaterial;
+        if (textureStyle === 'entirewall') {
+            ceilingMaterial = new THREE.MeshLambertMaterial({
+                color: 0x505050 // Grayish
+            });
+        } else if (textureStyle === 'backrooms') {
+            ceilingMaterial = new THREE.MeshLambertMaterial({
+                color: 0xF5F5DC // Fluorescent off-white/beige
+            });
+        } else {
+            // W95 style - use ceiling texture
+            const ceilingTextureLoader = new THREE.TextureLoader();
+            const ceilingTexture = ceilingTextureLoader.load(
+                'https://i.imgur.com/yd7jpxq.jpeg',
+                function (texture) {
+                    texture.wrapS = THREE.RepeatWrapping;
+                    texture.wrapT = THREE.RepeatWrapping;
+                    texture.repeat.set(SIZE, SIZE); // Tile based on maze size
+                }
+            );
+            ceilingMaterial = new THREE.MeshLambertMaterial({
+                map: ceilingTexture
+            });
+        }
+        const ceiling = new THREE.Mesh(ceilingGeometry, ceilingMaterial);
+        ceiling.rotation.x = Math.PI / 2;
+        ceiling.position.y = WALL_HEIGHT - 0.5;
+        group.add(ceiling);
     }
-    const ceiling = new THREE.Mesh(ceilingGeometry, ceilingMaterial);
-    ceiling.rotation.x = Math.PI / 2;
-    ceiling.position.y = WALL_HEIGHT - 0.5;
-    group.add(ceiling);
 
     // Add ceiling lamps for backrooms style
     if (textureStyle === 'backrooms') {
@@ -1740,6 +1743,15 @@ function isValidPosition(x, z) {
                 return false;
             }
         }
+    } else if (sceneMode === 'gallery') {
+        // Gallery mode: circular boundary based on gallery radius
+        const galleryRadius = window.galleryRadius || 20;
+        const distFromCenter = Math.sqrt(x * x + z * z);
+        if (distFromCenter > galleryRadius - playerRadius) {
+            return false;
+        }
+        // No wall collision checks needed for gallery
+        return true;
     } else {
         if (x < -halfSize + checkDist || x > halfSize - checkDist ||
             z < -halfSize + checkDist || z > halfSize - checkDist) {
@@ -2953,6 +2965,7 @@ function updateStatsDisplay() {
                     <option value="maze" ${sceneMode === 'maze' ? 'selected' : ''}>Maze</option>
                     <option value="openspace" ${sceneMode === 'openspace' ? 'selected' : ''}>Open Space</option>
                     <option value="alley" ${sceneMode === 'alley' ? 'selected' : ''}>Endless Alley</option>
+                    <option value="gallery" ${sceneMode === 'gallery' ? 'selected' : ''}>Gallery</option>
                 </select>
             </div>
             <div style="margin-bottom: 8px; margin-top: 8px;">
