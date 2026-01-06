@@ -92,17 +92,25 @@ class CathedralScene extends SceneController {
 
         // Load paintings on cathedral walls
         // Initialize progress tracking (global variables from maze.js)
+        // Note: We don't start loading here automatically to avoid double-loading
+        // Loading will be triggered by reloadAllPaintings() when needed (e.g., texture changes)
+        // For initial scene creation, we'll let reloadAllPaintings handle it if it's called
+        // Otherwise, we start loading here only if not already loading
         try {
-            isLoadingImages = true;
-            loadedImagesCount = 0;
-            totalImagesToLoad = this.gridWidth * this.gridHeight * 4; // 4 walls
+            // Only start loading if not already loading (to prevent double-loading)
+            if (typeof isLoadingImages !== 'undefined' && !isLoadingImages) {
+                isLoadingImages = true;
+                loadedImagesCount = 0;
+                totalImagesToLoad = this.gridWidth * this.gridHeight * 4; // 4 walls
+                // Start the loading process
+                console.log('Starting cathedral painting load from createContent...');
+                this.loadCathedralPaintings(group, textureStyle);
+            } else {
+                console.log('Skipping cathedral loading in createContent (already loading or will be handled by reloadAllPaintings)');
+            }
         } catch (e) {
             console.log('Global loading counters not available yet');
         }
-
-        // Start the loading process
-        console.log('Starting cathedral painting load...');
-        this.loadCathedralPaintings(group, textureStyle);
     }
 
     createWall(group, material, baseX, baseZ, direction) {
@@ -153,6 +161,18 @@ class CathedralScene extends SceneController {
 
     async loadCathedralPaintings(group, textureStyle) {
         console.log('loadCathedralPaintings called, wallSegments:', this.wallSegments.length);
+        
+        // Prevent concurrent loading - if already loading, wait for it to finish or return
+        if (typeof isLoadingImages !== 'undefined' && isLoadingImages) {
+            console.log('Cathedral loading already in progress, skipping duplicate call');
+            return;
+        }
+        
+        // Set loading flag immediately to prevent concurrent calls
+        if (typeof isLoadingImages !== 'undefined') {
+            isLoadingImages = true;
+        }
+        
         const textureLoader = new THREE.TextureLoader();
 
         // Initialize painting groups tracking

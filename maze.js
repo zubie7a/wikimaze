@@ -1395,6 +1395,20 @@ async function regenerateScene() {
         
         console.log('Scene regenerated');
         
+        // For cathedral scene, trigger painting loading if not already started by createContent
+        if (sceneMode === 'cathedral') {
+            const activeScene = getActiveScene();
+            if (activeScene && typeof activeScene.loadCathedralPaintings === 'function') {
+                // Only reload if not already loading (createContent might have started it)
+                if (!isLoadingImages) {
+                    console.log('Triggering cathedral painting load after scene regeneration...');
+                    reloadAllPaintings();
+                } else {
+                    console.log('Cathedral loading already in progress, skipping reloadAllPaintings');
+                }
+            }
+        }
+        
         // Clear the flag after a delay to allow door detection again
         setTimeout(() => {
             window.justRegenerated = false;
