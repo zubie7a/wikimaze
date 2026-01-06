@@ -88,22 +88,10 @@ const PHASE_TIME = 90; // 1.5 seconds per phase at 60fps
 
 // Generate maze with walls on boundaries
 // Returns: { horizontalWalls, verticalWalls }
-// horizontalWalls[y][x] = true means wall between cell (x,y) and (x,y+1)
-// verticalWalls[y][x] = true means wall between cell (x,y) and (x+1,y)
-// 
-// Scene-specific generation is in separate files:
-// - generate-maze.js: generateMazeLayout(size)
-// - generate-alley.js: generateAlleyLayout(size)  
-// - generate-openspace.js: generateOpenspaceLayout(size)
+// Uses the scene controller for the active scene mode
 function generateMaze(size) {
-    switch (sceneMode) {
-        case 'alley':
-            return generateAlleyLayout(size);
-        case 'openspace':
-            return generateOpenspaceLayout(size);
-        default:
-            return generateMazeLayout(size);
-    }
+    const activeScene = getActiveScene();
+    return activeScene.generateLayout(size);
 }
 
 
@@ -400,300 +388,9 @@ async function createMaze(wallData) {
         }
     }
 
-    // In alley mode, create end darkening planes (not moving fog)
-    if (sceneMode === 'alley') {
-        const alleyZ = Math.floor(MAZE_SIZE / 2);
-        const alleyWorldZ = (alleyZ - MAZE_SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
-        const halfAlleyLength = (MAZE_SIZE / 2) * CELL_SIZE;
-
-        window.alleyFogPlanes = null; // Not using moving planes
-        window.alleyWorldZ = alleyWorldZ;
-
-        // Create gradient darkness at each end of the alley (fixed position)
-        // Spread out layers for the outer zone
-        const numOuterLayers = 15;
-        const outerZoneLength = CELL_SIZE * 3; // 3 cells of gradual darkening
-
-        for (let i = 0; i < numOuterLayers; i++) {
-            const t = i / (numOuterLayers - 1); // 0 to 1
-            const distFromEnd = CELL_SIZE * 1.5 + t * outerZoneLength; // Start 1.5 cells from end
-            const opacity = 0.03 + (1 - t) * 0.08;
-
-            const fogMaterial = new THREE.MeshBasicMaterial({
-                color: 0x000000,
-                transparent: true,
-                opacity: opacity,
-                side: THREE.DoubleSide,
-                depthWrite: false
-            });
-
-            // West end
-            const westDark = new THREE.Mesh(
-                new THREE.PlaneGeometry(CELL_SIZE * 2, WALL_HEIGHT + 2),
-                fogMaterial.clone()
-            );
-            westDark.rotation.y = Math.PI / 2;
-            westDark.position.set(-halfAlleyLength + distFromEnd, WALL_HEIGHT / 2 - 0.5, alleyWorldZ);
-            group.add(westDark);
-
-            // East end
-            const eastDark = new THREE.Mesh(
-                new THREE.PlaneGeometry(CELL_SIZE * 2, WALL_HEIGHT + 2),
-                fogMaterial.clone()
-            );
-            eastDark.rotation.y = Math.PI / 2;
-            eastDark.position.set(halfAlleyLength - distFromEnd, WALL_HEIGHT / 2 - 0.5, alleyWorldZ);
-            group.add(eastDark);
-        }
-
-        // Dense layers very close to the end (last 1.5 cells) - tightly packed
-        const numDenseLayers = 30;
-        const denseZoneLength = CELL_SIZE * 1.5;
-
-        for (let i = 0; i < numDenseLayers; i++) {
-            const t = i / (numDenseLayers - 1); // 0 to 1
-            const distFromEnd = t * denseZoneLength;
-            const opacity = 0.08 + (1 - t) * 0.15; // Higher opacity near the very end
-
-            const fogMaterial = new THREE.MeshBasicMaterial({
-                color: 0x000000,
-                transparent: true,
-                opacity: opacity,
-                side: THREE.DoubleSide,
-                depthWrite: false
-            });
-
-            // West end dense fog
-            const westDense = new THREE.Mesh(
-                new THREE.PlaneGeometry(CELL_SIZE * 2, WALL_HEIGHT + 2),
-                fogMaterial.clone()
-            );
-            westDense.rotation.y = Math.PI / 2;
-            westDense.position.set(-halfAlleyLength + distFromEnd, WALL_HEIGHT / 2 - 0.5, alleyWorldZ);
-            group.add(westDense);
-
-            // East end dense fog
-            const eastDense = new THREE.Mesh(
-                new THREE.PlaneGeometry(CELL_SIZE * 2, WALL_HEIGHT + 2),
-                fogMaterial.clone()
-            );
-            eastDense.rotation.y = Math.PI / 2;
-            eastDense.position.set(halfAlleyLength - distFromEnd, WALL_HEIGHT / 2 - 0.5, alleyWorldZ);
-            group.add(eastDense);
-        }
-
-        // Add creepy eyes at both ends of the alley (backrooms only)
-        if (textureStyle === 'backrooms') {
-
-            const eyeRadius = 0.012; // Small eyes
-            const eyeSpacing = 0.035;
-
-            const eyeMaterial = new THREE.MeshBasicMaterial({
-                color: 0xFFFFFF,
-                transparent: true,
-                opacity: 1.0
-            });
-
-            const eyeGeometry = new THREE.SphereGeometry(eyeRadius, 8, 8);
-
-            // Create multiple pairs at each end
-            for (let pair = 0; pair < 4; pair++) {
-                // 2 pairs at west, 2 at east
-                const isEast = pair >= 2;
-
-                // Random position within the alley opening
-                const randomHeightMin = 0.8;
-                const randomHeightMax = 1.7;
-                const eyeHeight = randomHeightMin + Math.random() * (randomHeightMax - randomHeightMin);
-                const randomZOffset = (Math.random() - 0.5) * CELL_SIZE * 0.5;
-
-                // Base distance from player (will be updated dynamically)
-                // Keep them 1.5-2.5 cells ahead - visible but in the fog
-                const baseDist = CELL_SIZE * 2 + Math.random() * CELL_SIZE;
-
-                const leftEye = new THREE.Mesh(eyeGeometry, eyeMaterial.clone());
-                const rightEye = new THREE.Mesh(eyeGeometry, eyeMaterial.clone());
-
-                // Initial position (will be updated in animation loop)
-                const eyeZ = alleyWorldZ + randomZOffset;
-                leftEye.position.set(0, eyeHeight, eyeZ - eyeSpacing);
-                rightEye.position.set(0, eyeHeight, eyeZ + eyeSpacing);
-
-                group.add(leftEye);
-                group.add(rightEye);
-
-                const eyeGlow = new THREE.PointLight(0xFFFFFF, 0.08, 1, 2);
-                eyeGlow.position.set(0, eyeHeight, eyeZ);
-                group.add(eyeGlow);
-
-                creepyEyes.push({
-                    leftEye: leftEye,
-                    rightEye: rightEye,
-                    glow: eyeGlow,
-                    nextBlinkTime: performance.now() + 2000 + Math.random() * 4000,
-                    isBlinking: false,
-                    blinkEndTime: 0,
-                    // Alley-specific: track which end and distance
-                    isAlleyEyes: true,
-                    isEast: isEast,
-                    baseDist: baseDist,
-                    eyeHeight: eyeHeight,
-                    zOffset: randomZOffset,
-                    blinkCount: 0 // Track blinks for respawn
-                });
-            }
-        }
-    }
-
-    // In openspace mode, create doors on each boundary wall
-    if (sceneMode === 'openspace') {
-        const halfSize = (SIZE * CELL_SIZE) / 2;
-        const doorWidth = CELL_SIZE * 0.6;
-        const doorHeight = WALL_HEIGHT * 0.85;
-        const doorY = doorHeight / 2 - 0.5;
-
-        const doorMaterial = new THREE.MeshBasicMaterial({
-            color: 0x000000,
-            side: THREE.DoubleSide
-        });
-
-        // Store door positions globally for crossing detection
-        window.openspaceDoors = {
-            north: { z: -halfSize, minX: -doorWidth / 2, maxX: doorWidth / 2 },
-            south: { z: halfSize, minX: -doorWidth / 2, maxX: doorWidth / 2 },
-            west: { x: -halfSize, minZ: -doorWidth / 2, maxZ: doorWidth / 2 },
-            east: { x: halfSize, minZ: -doorWidth / 2, maxZ: doorWidth / 2 }
-        };
-
-        // North door (z = -halfSize, horizontal wall at y=0)
-        const northDoor = new THREE.Mesh(
-            new THREE.PlaneGeometry(doorWidth, doorHeight),
-            doorMaterial.clone()
-        );
-        northDoor.position.set(0, doorY, -halfSize + WALL_THICKNESS / 2 + 0.01);
-        group.add(northDoor);
-
-        // South door (z = halfSize, horizontal wall at y=MAZE_SIZE)
-        const southDoor = new THREE.Mesh(
-            new THREE.PlaneGeometry(doorWidth, doorHeight),
-            doorMaterial.clone()
-        );
-        southDoor.position.set(0, doorY, halfSize - WALL_THICKNESS / 2 - 0.01);
-        southDoor.rotation.y = Math.PI;
-        group.add(southDoor);
-
-        // West door (x = -halfSize, vertical wall at x=0)
-        const westDoor = new THREE.Mesh(
-            new THREE.PlaneGeometry(doorWidth, doorHeight),
-            doorMaterial.clone()
-        );
-        westDoor.rotation.y = Math.PI / 2;
-        westDoor.position.set(-halfSize + WALL_THICKNESS / 2 + 0.01, doorY, 0);
-        group.add(westDoor);
-
-        // East door (x = halfSize, vertical wall at x=MAZE_SIZE)
-        const eastDoor = new THREE.Mesh(
-            new THREE.PlaneGeometry(doorWidth, doorHeight),
-            doorMaterial.clone()
-        );
-        eastDoor.rotation.y = -Math.PI / 2;
-        eastDoor.position.set(halfSize - WALL_THICKNESS / 2 - 0.01, doorY, 0);
-        group.add(eastDoor);
-
-        // Add creepy glowing eyes in random doors (backrooms only)
-        if (textureStyle === 'backrooms') {
-            creepyEyes = []; // Reset eye pairs
-
-            const eyeRadius = 0.008;
-            const eyeSpacing = 0.025; // Distance between eyes (closer together)
-
-            // Glowing eye material (white, glowing)
-            const eyeMaterial = new THREE.MeshBasicMaterial({
-                color: 0xFFFFFF,
-                transparent: true,
-                opacity: 1.0
-            });
-
-            // Create eye geometry
-            const eyeGeometry = new THREE.SphereGeometry(eyeRadius, 8, 8);
-
-            // Create two pairs of eyes at random doors
-            const usedDoors = [];
-            for (let pair = 0; pair < 2; pair++) {
-                // Pick a random door (can be same door, different position)
-                const doorChoice = Math.floor(Math.random() * 4);
-
-                // Random position within the door area
-                const randomOffsetRange = doorWidth * 0.35;
-                const randomHeightMin = 0.6;
-                const randomHeightMax = 1.9;
-                const eyeHeight = randomHeightMin + Math.random() * (randomHeightMax - randomHeightMin);
-                const randomOffset = (Math.random() - 0.5) * 2 * randomOffsetRange;
-
-                let eyeX = 0, eyeZ = 0;
-
-                // Position eyes at the door plane (visible from inside room)
-                switch (doorChoice) {
-                    case 0: // North door
-                        eyeZ = -halfSize + WALL_THICKNESS / 2 + 0.02;
-                        eyeX = randomOffset;
-                        break;
-                    case 1: // South door
-                        eyeZ = halfSize - WALL_THICKNESS / 2 - 0.02;
-                        eyeX = randomOffset;
-                        break;
-                    case 2: // West door
-                        eyeX = -halfSize + WALL_THICKNESS / 2 + 0.02;
-                        eyeZ = randomOffset;
-                        break;
-                    case 3: // East door
-                        eyeX = halfSize - WALL_THICKNESS / 2 - 0.02;
-                        eyeZ = randomOffset;
-                        break;
-                }
-
-                // Create left eye
-                const leftEye = new THREE.Mesh(eyeGeometry, eyeMaterial.clone());
-                // Create right eye
-                const rightEye = new THREE.Mesh(eyeGeometry, eyeMaterial.clone());
-
-                // Position eyes based on which door
-                if (doorChoice === 0 || doorChoice === 1) {
-                    // North/South doors - eyes spread along X axis
-                    leftEye.position.set(eyeX - eyeSpacing, eyeHeight, eyeZ);
-                    rightEye.position.set(eyeX + eyeSpacing, eyeHeight, eyeZ);
-                } else {
-                    // West/East doors - eyes spread along Z axis
-                    leftEye.position.set(eyeX, eyeHeight, eyeZ - eyeSpacing);
-                    rightEye.position.set(eyeX, eyeHeight, eyeZ + eyeSpacing);
-                }
-
-                group.add(leftEye);
-                group.add(rightEye);
-
-                // Add very subtle point light between the eyes for glow effect
-                const eyeGlow = new THREE.PointLight(0xFFFFFF, 0.05, 0.5, 2);
-                eyeGlow.position.set(
-                    (leftEye.position.x + rightEye.position.x) / 2,
-                    eyeHeight,
-                    (leftEye.position.z + rightEye.position.z) / 2
-                );
-                group.add(eyeGlow);
-
-                // Track eyes for blinking animation
-                creepyEyes.push({
-                    leftEye: leftEye,
-                    rightEye: rightEye,
-                    glow: eyeGlow,
-                    nextBlinkTime: performance.now() + 2000 + Math.random() * 4000,
-                    isBlinking: false,
-                    blinkEndTime: 0
-                });
-            }
-        } else {
-            creepyEyes = [];
-        }
-    }
+    // Create scene-specific content (doors, fog planes, eyes, book, etc.)
+    const activeScene = getActiveScene();
+    activeScene.createContent(group, textureStyle, SIZE);
 
     // Texture loader for Wikipedia images
     const textureLoader = new THREE.TextureLoader();
@@ -1495,38 +1192,30 @@ async function regenerateScene() {
         }
     }
 
-    // Update scene background based on mode
-    if (sceneMode === 'alley' || sceneMode === 'openspace') {
-        scene.background = new THREE.Color(0x000000); // Dark for alley and openspace
-        if (sceneMode === 'alley') {
-            scene.fog = new THREE.Fog(0x000000, CELL_SIZE * 0.5, CELL_SIZE * 4); // Fog from 0.5 to 4 cells
-        } else {
-            scene.fog = null;
-        }
+    // Update scene background based on mode using scene controller
+    const activeScene = getActiveScene();
+    const sceneSetup = activeScene.getSceneSetup();
+    scene.background = new THREE.Color(sceneSetup.background);
+    if (sceneSetup.fog) {
+        scene.fog = new THREE.Fog(sceneSetup.fog.color, sceneSetup.fog.near, sceneSetup.fog.far);
     } else {
-        scene.background = new THREE.Color(0x87CEEB); // Sky blue for maze
         scene.fog = null;
     }
 
-    // Reset player position
-    if (sceneMode === 'alley') {
-        // Start in the middle of the alley
-        const alleyZ = Math.floor(MAZE_SIZE / 2);
-        playerPosition.x = 0; // Center of the alley (x = 0 in world coords)
-        playerPosition.z = (alleyZ - MAZE_SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
-        playerRotation = Math.PI / 2; // Face east (along the alley)
-    } else if (sceneMode === 'openspace') {
-        // Start in the center of the room
-        playerPosition.x = 0;
-        playerPosition.z = 0;
-        playerRotation = 0;
-    } else {
-        // Maze mode - start in corner
-        const SIZE = getEffectiveSize();
-        playerPosition.x = (-SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
-        playerPosition.z = (-SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
-        playerRotation = 0;
+    // Call scene's onEnterScene for state reset
+    activeScene.onEnterScene();
+
+    // Hide/show minimap based on scene
+    if (minimapCanvas) {
+        minimapCanvas.style.display = activeScene.showMinimap() && minimapVisible ? 'block' : 'none';
     }
+
+    // Reset player position using scene controller
+    const SIZE = getEffectiveSize();
+    const startPos = activeScene.getStartPosition(SIZE);
+    playerPosition.x = startPos.x;
+    playerPosition.z = startPos.z;
+    playerRotation = startPos.rotation;
     camera.position.set(playerPosition.x, 1.2, playerPosition.z);
     camera.rotation.y = playerRotation;
 
@@ -2608,8 +2297,9 @@ function updateMovement() {
     let moveX = 0;
     let moveZ = 0;
 
-    // Use quarter speed in alley mode
-    const currentMoveSpeed = sceneMode === 'alley' ? MOVE_SPEED / 4 : MOVE_SPEED;
+    // Use scene-specific movement speed
+    const activeScene = getActiveScene();
+    const currentMoveSpeed = activeScene.getMoveSpeed(MOVE_SPEED);
 
     if (controls.forward) {
         moveX -= Math.sin(playerRotation) * currentMoveSpeed;
@@ -3268,6 +2958,7 @@ function updateStatsDisplay() {
                     <option value="maze" ${sceneMode === 'maze' ? 'selected' : ''}>Maze</option>
                     <option value="openspace" ${sceneMode === 'openspace' ? 'selected' : ''}>Open Space</option>
                     <option value="alley" ${sceneMode === 'alley' ? 'selected' : ''}>Endless Alley</option>
+                    <option value="book" ${sceneMode === 'book' ? 'selected' : ''}>Book</option>
                 </select>
             </div>
             <div style="margin-bottom: 8px; margin-top: 8px;">
