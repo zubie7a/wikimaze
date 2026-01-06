@@ -45,12 +45,26 @@
             background: rgba(0, 0, 0, 0.5);
             opacity: 0.7;
         }
+
+        #fade-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: #000;
+            opacity: 0;
+            pointer-events: none;
+            z-index: 1000;
+            transition: opacity 0.3s ease-in-out;
+        }
     </style>
 </head>
 
 <body>
     <div id="canvas-container"></div>
     <canvas id="minimap"></canvas>
+    <div id="fade-overlay"></div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <!-- Scene controller base and implementations -->

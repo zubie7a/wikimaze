@@ -42,6 +42,8 @@ let globalCreateFramedPicture = null; // Global reference to createFramedPicture
 let paintingPositions = new Map(); // Store painting world positions (key: "wallKey-side", value: {centerY, plateY})
 let frameGroups = new Map(); // Store frame groups per wall (key: "wallKey-side", value: {frameGroup, wall})
 let isTransitioningRoom = false; // Prevent concurrent door crossings in openspace mode
+let sceneModeSelectHandler = null; // Store the dropdown change handler so we can temporarily remove it
+let isRegenerating = false; // Prevent concurrent regenerateScene calls
 let mazeGeneration = 0; // Counter to invalidate stale loading operations
 let globalAmbientLight = null; // Reference to ambient light for updating
 let globalDirectionalLight = null; // Reference to directional light for updating
@@ -1168,198 +1170,217 @@ let currentMazeGroup = null;
 
 // Regenerate the scene (maze or open space)
 async function regenerateScene() {
-    console.log('Regenerating scene with mode:', sceneMode);
+    // Prevent concurrent regeneration calls
+    if (isRegenerating) {
+        console.log('Already regenerating, ignoring duplicate call');
+        return;
+    }
+    isRegenerating = true;
+    
+    try {
+        console.log('Regenerating scene with mode:', sceneMode);
 
-    // Cancel any ongoing loading
-    cancelLoading = true;
+        // Set flag immediately to prevent door detection during regeneration
+        window.justRegenerated = true;
 
-    // Clear alley fog planes reference
-    window.alleyFogPlanes = null;
-    window.alleyWorldZ = null;
+        // Cancel any ongoing loading
+        cancelLoading = true;
 
-    // Wait a moment for current loading to stop
-    await new Promise(resolve => setTimeout(resolve, 100));
+        // Clear alley fog planes reference
+        window.alleyFogPlanes = null;
+        window.alleyWorldZ = null;
 
-    // Remove old maze from scene
-    if (currentMazeGroup && scene) {
-        scene.remove(currentMazeGroup);
-        // Dispose of old geometries and materials
-        currentMazeGroup.traverse((child) => {
-            if (child.geometry) child.geometry.dispose();
-            if (child.material) {
-                if (Array.isArray(child.material)) {
-                    child.material.forEach(m => m.dispose());
+        // Wait a moment for current loading to stop
+        await new Promise(resolve => setTimeout(resolve, 100));
+
+        // Remove old maze from scene
+        if (currentMazeGroup && scene) {
+            scene.remove(currentMazeGroup);
+            // Dispose of old geometries and materials
+            currentMazeGroup.traverse((child) => {
+                if (child.geometry) child.geometry.dispose();
+                if (child.material) {
+                    if (Array.isArray(child.material)) {
+                        child.material.forEach(m => m.dispose());
+                    } else {
+                        child.material.dispose();
+                    }
+                }
+            });
+        }
+
+        // Clear painting tracking
+        wikipediaWalls.clear();
+        paintingPositions.clear();
+        frameGroups.clear();
+
+        // Reset random image cache (but NOT topic cache - that persists across rooms)
+        randomImageResults = [];
+        randomImageIndex = 0;
+
+        // Reset cancel flag before generating new maze
+        cancelLoading = false;
+
+        // Increment generation to invalidate any stale loading operations
+        mazeGeneration++;
+
+        // Generate and add new maze
+        mazeData = generateMaze(getEffectiveSize());
+        currentMazeGroup = await createMaze(mazeData);
+        scene.add(currentMazeGroup);
+
+        // Update lighting based on texture style
+        if (globalAmbientLight) {
+            globalAmbientLight.intensity = textureStyle === 'backrooms' ? 0.15 : 0.6;
+        }
+        // Add/remove directional light based on texture style and scene mode
+        if (textureStyle === 'backrooms') {
+            if (globalDirectionalLight && scene) {
+                scene.remove(globalDirectionalLight);
+                globalDirectionalLight = null;
+            }
+            // Remove gallery center light if it exists
+            if (globalGalleryCenterLight && scene) {
+                scene.remove(globalGalleryCenterLight);
+                globalGalleryCenterLight = null;
+            }
+        } else if (sceneMode === 'gallery' && textureStyle === 'w95') {
+            // Gallery with W95 texture: use point light from center
+            // Remove directional light if it exists
+            if (globalDirectionalLight && scene) {
+                scene.remove(globalDirectionalLight);
+                globalDirectionalLight = null;
+            }
+            // Add/update center point light
+            if (!globalGalleryCenterLight && scene) {
+                globalGalleryCenterLight = new THREE.PointLight(0xffffff, 1.5, 30, 2);
+                globalGalleryCenterLight.position.set(0, 3, 0); // Center of gallery, slightly above ground
+                scene.add(globalGalleryCenterLight);
+            }
+        } else {
+            // Other scenes/textures: use directional light
+            // Remove gallery center light if it exists
+            if (globalGalleryCenterLight && scene) {
+                scene.remove(globalGalleryCenterLight);
+                globalGalleryCenterLight = null;
+            }
+            if (!globalDirectionalLight && scene) {
+                globalDirectionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+                scene.add(globalDirectionalLight);
+            }
+            // Position light based on scene mode
+            if (globalDirectionalLight) {
+                if (sceneMode === 'gallery') {
+                    // Gallery (non-W95): light from directly above
+                    globalDirectionalLight.position.set(0, 20, 0);
                 } else {
-                    child.material.dispose();
+                    // Other scenes: diagonal light
+                    globalDirectionalLight.position.set(10, 10, 10);
                 }
             }
-        });
-    }
-
-    // Clear painting tracking
-    wikipediaWalls.clear();
-    paintingPositions.clear();
-    frameGroups.clear();
-
-    // Reset random image cache (but NOT topic cache - that persists across rooms)
-    randomImageResults = [];
-    randomImageIndex = 0;
-
-    // Reset cancel flag before generating new maze
-    cancelLoading = false;
-
-    // Increment generation to invalidate any stale loading operations
-    mazeGeneration++;
-
-    // Generate and add new maze
-    mazeData = generateMaze(getEffectiveSize());
-    currentMazeGroup = await createMaze(mazeData);
-    scene.add(currentMazeGroup);
-
-    // Update lighting based on texture style
-    if (globalAmbientLight) {
-        globalAmbientLight.intensity = textureStyle === 'backrooms' ? 0.15 : 0.6;
-    }
-    // Add/remove directional light based on texture style and scene mode
-    if (textureStyle === 'backrooms') {
-        if (globalDirectionalLight && scene) {
-            scene.remove(globalDirectionalLight);
-            globalDirectionalLight = null;
         }
-        // Remove gallery center light if it exists
-        if (globalGalleryCenterLight && scene) {
-            scene.remove(globalGalleryCenterLight);
-            globalGalleryCenterLight = null;
+
+        // Update scene background based on mode using scene controller
+        const activeScene = getActiveScene();
+        const sceneSetup = activeScene.getSceneSetup();
+        scene.background = new THREE.Color(sceneSetup.background);
+        if (sceneSetup.fog) {
+            scene.fog = new THREE.Fog(sceneSetup.fog.color, sceneSetup.fog.near, sceneSetup.fog.far);
+        } else {
+            scene.fog = null;
         }
-    } else if (sceneMode === 'gallery' && textureStyle === 'w95') {
-        // Gallery with W95 texture: use point light from center
-        // Remove directional light if it exists
-        if (globalDirectionalLight && scene) {
-            scene.remove(globalDirectionalLight);
-            globalDirectionalLight = null;
+
+        // Call scene's onEnterScene for state reset
+        activeScene.onEnterScene();
+
+        // Hide/show minimap based on scene
+        if (minimapCanvas) {
+            minimapCanvas.style.display = activeScene.showMinimap() && minimapVisible ? 'block' : 'none';
         }
-        // Add/update center point light
-        if (!globalGalleryCenterLight && scene) {
-            globalGalleryCenterLight = new THREE.PointLight(0xffffff, 1.5, 30, 2);
-            globalGalleryCenterLight.position.set(0, 3, 0); // Center of gallery, slightly above ground
-            scene.add(globalGalleryCenterLight);
-        }
-    } else {
-        // Other scenes/textures: use directional light
-        // Remove gallery center light if it exists
-        if (globalGalleryCenterLight && scene) {
-            scene.remove(globalGalleryCenterLight);
-            globalGalleryCenterLight = null;
-        }
-        if (!globalDirectionalLight && scene) {
-            globalDirectionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-            scene.add(globalDirectionalLight);
-        }
-        // Position light based on scene mode
-        if (globalDirectionalLight) {
-            if (sceneMode === 'gallery') {
-                // Gallery (non-W95): light from directly above
-                globalDirectionalLight.position.set(0, 20, 0);
-            } else {
-                // Other scenes: diagonal light
-                globalDirectionalLight.position.set(10, 10, 10);
+
+        // Reset player position using scene controller
+        const SIZE = getEffectiveSize();
+        const startPos = activeScene.getStartPosition(SIZE);
+        playerPosition.x = startPos.x;
+        playerPosition.z = startPos.z;
+        playerRotation = startPos.rotation;
+        
+        // If random scene change is enabled, spawn at a door instead of default position
+        if (randomSceneChange) {
+            if (sceneMode === 'openspace') {
+                // Spawn at a random door in openspace
+                const newHalfSize = (openspaceSize * CELL_SIZE) / 2;
+                const doorOffset = 1.5; // Increased to prevent immediate door detection trigger
+                const doors = ['north', 'south', 'east', 'west'];
+                const randomDoor = doors[Math.floor(Math.random() * doors.length)];
+                switch (randomDoor) {
+                    case 'east':
+                        playerPosition.x = newHalfSize - doorOffset;
+                        playerPosition.z = 0;
+                        playerRotation = Math.PI / 2; // Face west (toward center)
+                        break;
+                    case 'west':
+                        playerPosition.x = -newHalfSize + doorOffset;
+                        playerPosition.z = 0;
+                        playerRotation = -Math.PI / 2; // Face east (toward center)
+                        break;
+                    case 'south':
+                        playerPosition.x = 0;
+                        playerPosition.z = newHalfSize - doorOffset;
+                        playerRotation = 0; // Face north (toward center)
+                        break;
+                    case 'north':
+                        playerPosition.x = 0;
+                        playerPosition.z = -newHalfSize + doorOffset;
+                        playerRotation = Math.PI; // Face south (toward center)
+                        break;
+                }
+            } else if (sceneMode === 'gallery') {
+                // Spawn at a door in gallery
+                const doors = window.galleryDoors;
+                if (doors) {
+                    const spawnDoor = Math.random() < 0.5 ? doors.door1 : doors.door2;
+                    const doorOffset = 1.0;
+                    const spawnDist = doors.doorRadius - doorOffset;
+                    playerPosition.x = Math.cos(spawnDoor.angle) * spawnDist;
+                    playerPosition.z = Math.sin(spawnDoor.angle) * spawnDist;
+                    playerRotation = Math.atan2(playerPosition.x, playerPosition.z);
+                }
+            } else if (sceneMode === 'alley') {
+                // Spawn at the right side (east) of the alley, like a door entrance
+                const alleyZ = Math.floor(SIZE / 2);
+                const halfSize = (SIZE * CELL_SIZE) / 2;
+                const doorOffset = 1.5; // Increased to prevent immediate door detection trigger
+                playerPosition.x = halfSize - doorOffset; // Right side (east) of the alley
+                playerPosition.z = (alleyZ - SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
+                playerRotation = Math.PI / 2; // Face east (down the alley)
             }
         }
+        
+        camera.position.set(playerPosition.x, 1.2, playerPosition.z);
+        camera.rotation.y = playerRotation;
+
+        // Reset auto mode state
+        targetCell = null;
+        navigationPath = [];
+        currentPathIndex = 0;
+        visitedCells.clear();
+        isViewingPainting = false;
+        viewingPaintingTimer = 0;
+        viewingPhase = 0;
+        paintingLookDirection = null;
+        originalDirection = null;
+        currentPitch = 0;
+        
+        console.log('Scene regenerated');
+        
+        // Clear the flag after a delay to allow door detection again
+        setTimeout(() => {
+            window.justRegenerated = false;
+        }, 500); // Give 500ms buffer after regeneration
+    } finally {
+        isRegenerating = false;
     }
-
-    // Update scene background based on mode using scene controller
-    const activeScene = getActiveScene();
-    const sceneSetup = activeScene.getSceneSetup();
-    scene.background = new THREE.Color(sceneSetup.background);
-    if (sceneSetup.fog) {
-        scene.fog = new THREE.Fog(sceneSetup.fog.color, sceneSetup.fog.near, sceneSetup.fog.far);
-    } else {
-        scene.fog = null;
-    }
-
-    // Call scene's onEnterScene for state reset
-    activeScene.onEnterScene();
-
-    // Hide/show minimap based on scene
-    if (minimapCanvas) {
-        minimapCanvas.style.display = activeScene.showMinimap() && minimapVisible ? 'block' : 'none';
-    }
-
-    // Reset player position using scene controller
-    const SIZE = getEffectiveSize();
-    const startPos = activeScene.getStartPosition(SIZE);
-    playerPosition.x = startPos.x;
-    playerPosition.z = startPos.z;
-    playerRotation = startPos.rotation;
-    
-    // If random scene change is enabled, spawn at a door instead of default position
-    if (randomSceneChange) {
-        if (sceneMode === 'openspace') {
-            // Spawn at a random door in openspace
-            const newHalfSize = (openspaceSize * CELL_SIZE) / 2;
-            const doorOffset = 0.5;
-            const doors = ['north', 'south', 'east', 'west'];
-            const randomDoor = doors[Math.floor(Math.random() * doors.length)];
-            switch (randomDoor) {
-                case 'east':
-                    playerPosition.x = newHalfSize - doorOffset;
-                    playerPosition.z = 0;
-                    playerRotation = Math.PI / 2; // Face west (toward center)
-                    break;
-                case 'west':
-                    playerPosition.x = -newHalfSize + doorOffset;
-                    playerPosition.z = 0;
-                    playerRotation = -Math.PI / 2; // Face east (toward center)
-                    break;
-                case 'south':
-                    playerPosition.x = 0;
-                    playerPosition.z = newHalfSize - doorOffset;
-                    playerRotation = 0; // Face north (toward center)
-                    break;
-                case 'north':
-                    playerPosition.x = 0;
-                    playerPosition.z = -newHalfSize + doorOffset;
-                    playerRotation = Math.PI; // Face south (toward center)
-                    break;
-            }
-        } else if (sceneMode === 'gallery') {
-            // Spawn at a door in gallery
-            const doors = window.galleryDoors;
-            if (doors) {
-                const spawnDoor = Math.random() < 0.5 ? doors.door1 : doors.door2;
-                const doorOffset = 1.0;
-                const spawnDist = doors.doorRadius - doorOffset;
-                playerPosition.x = Math.cos(spawnDoor.angle) * spawnDist;
-                playerPosition.z = Math.sin(spawnDoor.angle) * spawnDist;
-                playerRotation = Math.atan2(playerPosition.x, playerPosition.z);
-            }
-        } else if (sceneMode === 'alley') {
-            // Spawn at the right side (east) of the alley, like a door entrance
-            const alleyZ = Math.floor(SIZE / 2);
-            const halfSize = (SIZE * CELL_SIZE) / 2;
-            const doorOffset = 0.5; // How far inside from the edge
-            playerPosition.x = halfSize - doorOffset; // Right side (east) of the alley
-            playerPosition.z = (alleyZ - SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
-            playerRotation = Math.PI / 2; // Face east (down the alley)
-        }
-    }
-    
-    camera.position.set(playerPosition.x, 1.2, playerPosition.z);
-    camera.rotation.y = playerRotation;
-
-    // Reset auto mode state
-    targetCell = null;
-    navigationPath = [];
-    currentPathIndex = 0;
-    visitedCells.clear();
-    isViewingPainting = false;
-    viewingPaintingTimer = 0;
-    viewingPhase = 0;
-    paintingLookDirection = null;
-    originalDirection = null;
-    currentPitch = 0;
-
-    console.log('Scene regenerated');
 }
 
 // Initialize the scene
@@ -2505,7 +2526,7 @@ function updateMovement() {
                             else if (playerPosition.z < -halfSize) exitDirection = 'north';
                             else if (playerPosition.z > halfSize) exitDirection = 'south';
 
-                            if (exitDirection) {
+                            if (exitDirection && !isTransitioningRoom && !window.justRegenerated) {
                                 handleOpenspaceDoorCrossing(exitDirection);
                             }
                         }
@@ -2650,7 +2671,8 @@ function updateMovement() {
         else if (playerPosition.z < -halfSize) exitDirection = 'north';
         else if (playerPosition.z > halfSize) exitDirection = 'south';
 
-        if (exitDirection) {
+        if (exitDirection && !isTransitioningRoom && !window.justRegenerated) {
+            console.log('Openspace door detected:', exitDirection, 'justRegenerated:', window.justRegenerated, 'isTransitioningRoom:', isTransitioningRoom);
             handleOpenspaceDoorCrossing(exitDirection);
         }
     }
@@ -3302,6 +3324,71 @@ async function reloadAllPaintings() {
     console.log('Finished loading images');
 }
 
+// Fade functions for door transitions
+async function fadeToBlack() {
+    const fadeOverlay = document.getElementById('fade-overlay');
+    if (!fadeOverlay) {
+        console.warn('Fade overlay not found');
+        return;
+    }
+    
+    return new Promise((resolve) => {
+        // Set transition first
+        fadeOverlay.style.transition = 'opacity 0.3s ease-in-out';
+        
+        // Use requestAnimationFrame to ensure transition is applied before changing opacity
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                fadeOverlay.style.opacity = '1';
+                
+                const onTransitionEnd = function() {
+                    fadeOverlay.removeEventListener('transitionend', onTransitionEnd);
+                    resolve();
+                };
+                fadeOverlay.addEventListener('transitionend', onTransitionEnd, { once: true });
+                
+                // Fallback timeout in case transitionend doesn't fire
+                setTimeout(() => {
+                    fadeOverlay.removeEventListener('transitionend', onTransitionEnd);
+                    resolve();
+                }, 350);
+            });
+        });
+    });
+}
+
+async function fadeFromBlack() {
+    const fadeOverlay = document.getElementById('fade-overlay');
+    if (!fadeOverlay) {
+        console.warn('Fade overlay not found');
+        return;
+    }
+    
+    return new Promise((resolve) => {
+        // Set transition first
+        fadeOverlay.style.transition = 'opacity 0.3s ease-in-out';
+        
+        // Use requestAnimationFrame to ensure transition is applied before changing opacity
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                fadeOverlay.style.opacity = '0';
+                
+                const onTransitionEnd = function() {
+                    fadeOverlay.removeEventListener('transitionend', onTransitionEnd);
+                    resolve();
+                };
+                fadeOverlay.addEventListener('transitionend', onTransitionEnd, { once: true });
+                
+                // Fallback timeout in case transitionend doesn't fire
+                setTimeout(() => {
+                    fadeOverlay.removeEventListener('transitionend', onTransitionEnd);
+                    resolve();
+                }, 350);
+            });
+        });
+    });
+}
+
 // Handle crossing alley boundary - load fresh paintings
 async function handleAlleyCrossing() {
     if (sceneMode !== 'alley') return;
@@ -3312,10 +3399,15 @@ async function handleAlleyCrossing() {
         const randomIndex = Math.floor(Math.random() * availableScenes.length);
         const newSceneMode = availableScenes[randomIndex];
         sceneMode = newSceneMode;
-        // Update dropdown to reflect new scene
+        // Update dropdown to reflect new scene (temporarily remove handler to prevent double regeneration)
         const sceneModeSelect = statsDiv?.querySelector('#scene-mode-select');
-        if (sceneModeSelect) {
+        if (sceneModeSelect && sceneModeSelectHandler) {
+            sceneModeSelect.removeEventListener('change', sceneModeSelectHandler);
             sceneModeSelect.value = sceneMode;
+            // Re-add handler after a brief delay to ensure the change event has fired
+            setTimeout(() => {
+                sceneModeSelect.addEventListener('change', sceneModeSelectHandler);
+            }, 0);
         }
         await regenerateScene();
         
@@ -3323,7 +3415,7 @@ async function handleAlleyCrossing() {
         if (newSceneMode === 'openspace') {
             // Spawn at a door in openspace (default to west door)
             const newHalfSize = (openspaceSize * CELL_SIZE) / 2;
-            const doorOffset = 0.5;
+            const doorOffset = 1.5; // Increased to prevent immediate re-triggering
             playerPosition.x = -newHalfSize + doorOffset;
             playerPosition.z = 0;
             playerRotation = -Math.PI / 2; // Face east (toward center)
@@ -3332,7 +3424,7 @@ async function handleAlleyCrossing() {
             const doors = window.galleryDoors;
             if (doors) {
                 const spawnDoor = Math.random() < 0.5 ? doors.door1 : doors.door2;
-                const doorOffset = 1.0;
+                const doorOffset = 2.0; // Increased to prevent immediate re-triggering
                 const spawnDist = doors.doorRadius - doorOffset;
                 playerPosition.x = Math.cos(spawnDoor.angle) * spawnDist;
                 playerPosition.z = Math.sin(spawnDoor.angle) * spawnDist;
@@ -3343,7 +3435,7 @@ async function handleAlleyCrossing() {
             const size = getEffectiveSize();
             const alleyZ = Math.floor(size / 2);
             const halfSize = (size * CELL_SIZE) / 2;
-            const doorOffset = 0.5; // How far inside from the edge
+            const doorOffset = 1.5; // Increased to prevent immediate re-triggering
             playerPosition.x = halfSize - doorOffset; // Right side (east) of the alley
             playerPosition.z = (alleyZ - size / 2) * CELL_SIZE + CELL_SIZE / 2;
             playerRotation = Math.PI / 2; // Face east (down the alley)
@@ -3351,6 +3443,9 @@ async function handleAlleyCrossing() {
         
         camera.position.set(playerPosition.x, playerPosition.y || 1.2, playerPosition.z);
         camera.rotation.y = playerRotation;
+        
+        // Fade from black
+        await fadeFromBlack();
         return;
     }
 
@@ -3379,18 +3474,71 @@ async function handleGalleryDoorCrossing(exitDoorWallIndex) {
     try {
         // If random scene change is enabled, randomly change scene and skip normal processing
         if (randomSceneChange) {
+            // Fade to black
+            await fadeToBlack();
+            
+            // Select random scene BEFORE regenerating to prevent double selection
             const availableScenes = ['gallery', 'alley', 'openspace'];
             const randomIndex = Math.floor(Math.random() * availableScenes.length);
-            sceneMode = availableScenes[randomIndex];
-            // Update dropdown to reflect new scene
+            const newSceneMode = availableScenes[randomIndex];
+            
+            // Set scene mode immediately to prevent race conditions
+            sceneMode = newSceneMode;
+            // Update dropdown to reflect new scene (temporarily remove handler to prevent double regeneration)
             const sceneModeSelect = statsDiv?.querySelector('#scene-mode-select');
-            if (sceneModeSelect) {
+            if (sceneModeSelect && sceneModeSelectHandler) {
+                sceneModeSelect.removeEventListener('change', sceneModeSelectHandler);
                 sceneModeSelect.value = sceneMode;
+                // Re-add handler after a brief delay to ensure the change event has fired
+                setTimeout(() => {
+                    sceneModeSelect.addEventListener('change', sceneModeSelectHandler);
+                }, 0);
             }
-            // Regenerate with new scene and return early
+            
+            // Regenerate with new scene (isTransitioningRoom is already true, so door detection is blocked)
             await regenerateScene();
+            
+            // Position player at appropriate door based on new scene type
+            if (newSceneMode === 'openspace') {
+                // Spawn at opposite door in openspace
+                const newHalfSize = (openspaceSize * CELL_SIZE) / 2;
+                const doorOffset = 1.5; // Increased to prevent immediate re-triggering
+                // For simplicity, spawn at west door
+                playerPosition.x = -newHalfSize + doorOffset;
+                playerPosition.z = 0;
+                playerRotation = -Math.PI / 2; // Face east (toward center)
+            } else if (newSceneMode === 'gallery') {
+                // Spawn at a door in gallery
+                const doors = window.galleryDoors;
+                if (doors) {
+                    const spawnDoor = Math.random() < 0.5 ? doors.door1 : doors.door2;
+                    const doorOffset = 2.0; // Increased to prevent immediate re-triggering
+                    const spawnDist = doors.doorRadius - doorOffset;
+                    playerPosition.x = Math.cos(spawnDoor.angle) * spawnDist;
+                    playerPosition.z = Math.sin(spawnDoor.angle) * spawnDist;
+                    playerRotation = Math.atan2(playerPosition.x, playerPosition.z);
+                }
+            } else if (newSceneMode === 'alley') {
+                // Spawn at the right side (east) of the alley, like a door entrance
+                const size = getEffectiveSize();
+                const alleyZ = Math.floor(size / 2);
+                const halfSize = (size * CELL_SIZE) / 2;
+                const doorOffset = 1.5; // Increased to prevent immediate re-triggering
+                playerPosition.x = halfSize - doorOffset;
+                playerPosition.z = (alleyZ - size / 2) * CELL_SIZE + CELL_SIZE / 2;
+                playerRotation = Math.PI / 2; // Face east (down the alley)
+            }
+            
+            camera.position.set(playerPosition.x, playerPosition.y || 1.2, playerPosition.z);
+            camera.rotation.y = playerRotation;
+            
+            // Fade from black
+            await fadeFromBlack();
             return;
         }
+
+        // Fade to black
+        await fadeToBlack();
 
         console.log(`Crossed gallery door at wall ${exitDoorWallIndex}, regenerating gallery...`);
 
@@ -3405,7 +3553,7 @@ async function handleGalleryDoorCrossing(exitDoorWallIndex) {
             
             // Position player slightly inside the room (away from door) to prevent immediate re-trigger
             // Similar to openspace doorOffset - position them inside, not at the door
-            const doorOffset = 1.0; // Distance inside from door
+            const doorOffset = 2.0; // Increased to prevent immediate re-triggering
             const spawnDist = doors.doorRadius - doorOffset;
             playerPosition.x = Math.cos(oppositeDoor.angle) * spawnDist;
             playerPosition.z = Math.sin(oppositeDoor.angle) * spawnDist;
@@ -3421,6 +3569,9 @@ async function handleGalleryDoorCrossing(exitDoorWallIndex) {
 
         camera.position.set(playerPosition.x, playerPosition.y || 1.2, playerPosition.z);
         camera.rotation.y = playerRotation;
+        
+        // Fade from black
+        await fadeFromBlack();
         
         // Small delay to ensure transition flag is cleared after positioning
         await new Promise(resolve => setTimeout(resolve, 100));
@@ -3442,14 +3593,25 @@ async function handleOpenspaceDoorCrossing(exitDirection) {
     try {
         // If random scene change is enabled, randomly change scene and skip normal processing
         if (randomSceneChange) {
+            // Fade to black
+            await fadeToBlack();
+            
+            // Select random scene BEFORE regenerating to prevent double selection
             const availableScenes = ['gallery', 'alley', 'openspace'];
             const randomIndex = Math.floor(Math.random() * availableScenes.length);
             const newSceneMode = availableScenes[randomIndex];
+            
+            // Set scene mode immediately to prevent race conditions
             sceneMode = newSceneMode;
-            // Update dropdown to reflect new scene
+            // Update dropdown to reflect new scene (temporarily remove handler to prevent double regeneration)
             const sceneModeSelect = statsDiv?.querySelector('#scene-mode-select');
-            if (sceneModeSelect) {
+            if (sceneModeSelect && sceneModeSelectHandler) {
+                sceneModeSelect.removeEventListener('change', sceneModeSelectHandler);
                 sceneModeSelect.value = sceneMode;
+                // Re-add handler after a brief delay to ensure the change event has fired
+                setTimeout(() => {
+                    sceneModeSelect.addEventListener('change', sceneModeSelectHandler);
+                }, 0);
             }
             // Regenerate with new scene
             await regenerateScene();
@@ -3458,7 +3620,7 @@ async function handleOpenspaceDoorCrossing(exitDirection) {
             if (newSceneMode === 'openspace') {
                 // Spawn at opposite door in openspace (if exited east, spawn at west, etc.)
                 const newHalfSize = (openspaceSize * CELL_SIZE) / 2;
-                const doorOffset = 0.5;
+                const doorOffset = 1.5; // Increased to prevent immediate re-triggering
                 // Map exit direction to opposite door
                 let oppositeDirection;
                 switch (exitDirection) {
@@ -3495,18 +3657,18 @@ async function handleOpenspaceDoorCrossing(exitDirection) {
                 const doors = window.galleryDoors;
                 if (doors) {
                     const spawnDoor = Math.random() < 0.5 ? doors.door1 : doors.door2;
-                    const doorOffset = 1.0;
+                    const doorOffset = 2.0; // Increased to prevent immediate re-triggering
                     const spawnDist = doors.doorRadius - doorOffset;
                     playerPosition.x = Math.cos(spawnDoor.angle) * spawnDist;
                     playerPosition.z = Math.sin(spawnDoor.angle) * spawnDist;
                     playerRotation = Math.atan2(playerPosition.x, playerPosition.z);
                 }
-        } else if (newSceneMode === 'alley') {
+            } else if (newSceneMode === 'alley') {
             // Spawn at the right side (east) of the alley, like a door entrance
             const size = getEffectiveSize();
             const alleyZ = Math.floor(size / 2);
             const halfSize = (size * CELL_SIZE) / 2;
-            const doorOffset = 0.5; // How far inside from the edge
+            const doorOffset = 1.5; // Increased to prevent immediate re-triggering
             playerPosition.x = halfSize - doorOffset; // Right side (east) of the alley
             playerPosition.z = (alleyZ - size / 2) * CELL_SIZE + CELL_SIZE / 2;
             playerRotation = Math.PI / 2; // Face east (down the alley)
@@ -3514,8 +3676,14 @@ async function handleOpenspaceDoorCrossing(exitDirection) {
             
             camera.position.set(playerPosition.x, playerPosition.y || 1.2, playerPosition.z);
             camera.rotation.y = playerRotation;
+            
+            // Fade from black
+            await fadeFromBlack();
             return;
         }
+
+        // Fade to black
+        await fadeToBlack();
 
         // Pick a new random room size
         const newSize = getRandomOpenspaceSize();
@@ -3529,7 +3697,7 @@ async function handleOpenspaceDoorCrossing(exitDirection) {
 
         // Position player at the opposite door of the new room
         const newHalfSize = (newSize * CELL_SIZE) / 2;
-        const doorOffset = 0.5; // How far inside the door to spawn
+        const doorOffset = 1.5; // Increased to prevent immediate re-triggering
 
         switch (exitDirection) {
             case 'east':
@@ -3564,6 +3732,9 @@ async function handleOpenspaceDoorCrossing(exitDirection) {
 
         camera.position.set(playerPosition.x, 1.2, playerPosition.z);
         camera.rotation.y = playerRotation;
+        
+        // Fade from black
+        await fadeFromBlack();
     } finally {
         isTransitioningRoom = false;
     }
@@ -3668,7 +3839,10 @@ function updateStatsDisplay() {
             if (menuToggle) menuToggle.style.display = 'block';
         });
 
-        sceneModeSelect.addEventListener('change', (e) => {
+        sceneModeSelectHandler = (e) => {
+            console.log('Dropdown change handler called, new value:', e.target.value, 'current sceneMode:', sceneMode, 'isRegenerating:', isRegenerating);
+            // Set flag BEFORE changing sceneMode to prevent door detection with old position
+            window.justRegenerated = true;
             sceneMode = e.target.value;
             // Reset movement controls to prevent stuck movement from arrow key presses
             controls.forward = false;
@@ -3678,7 +3852,8 @@ function updateStatsDisplay() {
             // Blur the dropdown to prevent further arrow key interference
             e.target.blur();
             regenerateScene();
-        });
+        };
+        sceneModeSelect.addEventListener('change', sceneModeSelectHandler);
 
         textureStyleSelect.addEventListener('change', (e) => {
             textureStyle = e.target.value;
