@@ -75,6 +75,12 @@ class SceneController {
     hasPaintingsOnBothSides(wallType, x, y, size) {
         return true;
     }
+
+    // Get the effective size for this scene (used for maze generation, collision, etc.)
+    // Default implementation returns MAZE_SIZE, scenes can override
+    getEffectiveSize() {
+        return 10; // Default MAZE_SIZE - scenes should override if they need different sizes
+    }
 }
 
 // Scene registry - populated by individual scene files

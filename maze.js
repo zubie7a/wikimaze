@@ -5,9 +5,18 @@ const OPENSPACE_SIZES = [3, 5, 7]; // Possible room sizes
 const CELL_SIZE = 2;
 
 // Get effective maze size based on scene mode
+// Delegates to the active scene controller's getEffectiveSize() method
 function getEffectiveSize() {
+    // Special case for openspace (uses variable size)
     if (sceneMode === 'openspace') return openspaceSize;
-    if (sceneMode === 'pillars') return 15;
+    
+    // Delegate to active scene controller
+    const activeScene = getActiveScene();
+    if (activeScene && typeof activeScene.getEffectiveSize === 'function') {
+        return activeScene.getEffectiveSize();
+    }
+    
+    // Fallback to default MAZE_SIZE if scene not found or method missing
     return MAZE_SIZE;
 }
 
@@ -37,7 +46,7 @@ let loadedImagesCount = 0; // Number of images loaded so far
 let totalImagesToLoad = 0; // Total number of images to load
 let cancelLoading = false; // Flag to cancel current loading operation
 let statsVisible = false; // Stats visibility state
-let sceneMode = 'maze'; // 'maze' or 'openspace'
+let sceneMode = 'complex'; // 'maze' or 'openspace'
 let wikipediaWalls = new Set(); // Track which walls have Wikipedia textures (format: "type-x-y")
 let globalWallMeshMap = null; // Global reference to wall mesh map for loading paintings on demand
 let globalCreateFramedPicture = null; // Global reference to createFramedPicture function
@@ -478,9 +487,9 @@ async function createMaze(wallData) {
     // Select walls for Wikipedia images
     const wikipediaWallKeys = new Set();
 
-    // Helper to check if a wall has a door (openspace and pillars modes)
+    // Helper to check if a wall has a door (openspace, pillars, and complex modes)
     const isDoorWall = (type, x, y) => {
-        if (sceneMode !== 'openspace' && sceneMode !== 'pillars') return false;
+        if (sceneMode !== 'openspace' && sceneMode !== 'pillars' && sceneMode !== 'complex') return false;
         const center = Math.floor(SIZE / 2);
         // North door: horizontal at y=0, x=center
         if (type === 'horizontal' && y === 0 && x === center) return true;
@@ -1417,6 +1426,35 @@ async function regenerateScene() {
                         playerRotation = Math.PI; // Face south (toward center)
                         break;
                 }
+            } else if (sceneMode === 'complex') {
+                // Spawn at a random door in complex
+                const complexSize = getEffectiveSize();
+                const newHalfSize = (complexSize * CELL_SIZE) / 2;
+                const doorOffset = 1.5;
+                const doors = ['north', 'south', 'east', 'west'];
+                const randomDoor = doors[Math.floor(Math.random() * doors.length)];
+                switch (randomDoor) {
+                    case 'east':
+                        playerPosition.x = newHalfSize - doorOffset;
+                        playerPosition.z = 0;
+                        playerRotation = Math.PI / 2;
+                        break;
+                    case 'west':
+                        playerPosition.x = -newHalfSize + doorOffset;
+                        playerPosition.z = 0;
+                        playerRotation = -Math.PI / 2;
+                        break;
+                    case 'south':
+                        playerPosition.x = 0;
+                        playerPosition.z = newHalfSize - doorOffset;
+                        playerRotation = 0;
+                        break;
+                    case 'north':
+                        playerPosition.x = 0;
+                        playerPosition.z = -newHalfSize + doorOffset;
+                        playerRotation = Math.PI;
+                        break;
+                }
             }
         }
 
@@ -2062,6 +2100,22 @@ function isValidPosition(x, z) {
                 return false;
             }
         }
+    } else if (sceneMode === 'complex') {
+        const doors = window.complexDoors;
+        if (doors) {
+            const inNorthDoor = z < -halfSize + checkDist && x >= doors.north.minX && x <= doors.north.maxX;
+            const inSouthDoor = z > halfSize - checkDist && x >= doors.south.minX && x <= doors.south.maxX;
+            const inWestDoor = x < -halfSize + checkDist && z >= doors.west.minZ && z <= doors.west.maxZ;
+            const inEastDoor = x > halfSize - checkDist && z >= doors.east.minZ && z <= doors.east.maxZ;
+
+            if (x < -halfSize + checkDist && !inWestDoor) return false;
+            if (x > halfSize - checkDist && !inEastDoor) return false;
+            if (z < -halfSize + checkDist && !inNorthDoor) return false;
+            if (z > halfSize - checkDist && !inSouthDoor) return false;
+        } else {
+            // Fallback
+            if (x < -halfSize + checkDist || x > halfSize - checkDist || z < -halfSize + checkDist || z > halfSize - checkDist) return false;
+        }
     } else if (sceneMode === 'gallery') {
         // Gallery mode: circular boundary based on gallery radius
         const galleryRadius = window.galleryRadius || 20;
@@ -2125,10 +2179,10 @@ function isValidPosition(x, z) {
     if (!mazeData) return true;
     const { horizontalWalls, verticalWalls } = mazeData;
 
-    // Helper to check if a wall is a door wall (no collision in openspace/pillars mode)
+    // Helper to check if a wall is a door wall (no collision in openspace/pillars/complex mode)
     const center = Math.floor(SIZE / 2);
     const isDoorWall = (type, wallX, wallY) => {
-        if (sceneMode !== 'openspace' && sceneMode !== 'pillars') return false;
+        if (sceneMode !== 'openspace' && sceneMode !== 'pillars' && sceneMode !== 'complex') return false;
         // North door: horizontal at y=0, x=center
         if (type === 'horizontal' && wallY === 0 && wallX === center) return true;
         // South door: horizontal at y=SIZE, x=center
@@ -2805,6 +2859,20 @@ function updateMovement() {
         if (exitDirection && !isTransitioningRoom && !window.justRegenerated) {
             console.log('Pillars door detected:', exitDirection, 'justRegenerated:', window.justRegenerated, 'isTransitioningRoom:', isTransitioningRoom);
             handlePillarsDoorCrossing(exitDirection);
+        }
+    }
+
+    // Door crossing for complex mode
+    if (sceneMode === 'complex' && window.complexDoors) {
+        const halfSize = (getEffectiveSize() * CELL_SIZE) / 2;
+        let exitDirection = null;
+        if (playerPosition.x < -halfSize) exitDirection = 'west';
+        else if (playerPosition.x > halfSize) exitDirection = 'east';
+        else if (playerPosition.z < -halfSize) exitDirection = 'north';
+        else if (playerPosition.z > halfSize) exitDirection = 'south';
+
+        if (exitDirection && !isTransitioningRoom && !window.justRegenerated) {
+            handleComplexDoorCrossing(exitDirection);
         }
     }
 
@@ -3580,7 +3648,7 @@ async function handleAlleyCrossing() {
         // Fade to black/white before transition
         await fadeToBlack();
 
-        const availableScenes = ['gallery', 'alley', 'openspace', 'cathedral', 'pillars'];
+        const availableScenes = ['gallery', 'alley', 'openspace', 'cathedral', 'pillars', 'complex'];
         const randomIndex = Math.floor(Math.random() * availableScenes.length);
         const newSceneMode = availableScenes[randomIndex];
         sceneMode = newSceneMode;
@@ -3701,7 +3769,7 @@ async function handleGalleryDoorCrossing(exitDoorWallIndex) {
             await fadeToBlack();
 
             // Select random scene BEFORE regenerating to prevent double selection
-            const availableScenes = ['gallery', 'alley', 'openspace', 'cathedral', 'pillars'];
+            const availableScenes = ['gallery', 'alley', 'openspace', 'cathedral', 'pillars', 'complex'];
             const randomIndex = Math.floor(Math.random() * availableScenes.length);
             const newSceneMode = availableScenes[randomIndex];
 
@@ -3852,7 +3920,7 @@ async function handleOpenspaceDoorCrossing(exitDirection) {
             await fadeToBlack();
 
             // Select random scene BEFORE regenerating to prevent double selection
-            const availableScenes = ['gallery', 'alley', 'openspace', 'cathedral', 'pillars'];
+            const availableScenes = ['gallery', 'alley', 'openspace', 'cathedral', 'pillars', 'complex'];
             const randomIndex = Math.floor(Math.random() * availableScenes.length);
             const newSceneMode = availableScenes[randomIndex];
 
@@ -4043,7 +4111,7 @@ async function handlePillarsDoorCrossing(exitDirection) {
         if (randomSceneChange) {
             await fadeToBlack();
 
-            const availableScenes = ['gallery', 'alley', 'openspace', 'cathedral', 'pillars'];
+            const availableScenes = ['gallery', 'alley', 'openspace', 'cathedral', 'pillars', 'complex'];
             const randomIndex = Math.floor(Math.random() * availableScenes.length);
             const newSceneMode = availableScenes[randomIndex];
             sceneMode = newSceneMode;
@@ -4126,6 +4194,32 @@ async function handlePillarsDoorCrossing(exitDirection) {
                         playerRotation = -Math.PI / 2;
                     }
                 }
+            } else if (newSceneMode === 'complex') {
+                const complexSize = getEffectiveSize();
+                const complexHalfSize = (complexSize * CELL_SIZE) / 2;
+                const doorOffset = 1.5;
+                switch (exitDirection) {
+                    case 'east':
+                        playerPosition.x = -complexHalfSize + doorOffset;
+                        playerPosition.z = 0;
+                        playerRotation = -Math.PI / 2;
+                        break;
+                    case 'west':
+                        playerPosition.x = complexHalfSize - doorOffset;
+                        playerPosition.z = 0;
+                        playerRotation = Math.PI / 2;
+                        break;
+                    case 'south':
+                        playerPosition.x = 0;
+                        playerPosition.z = -complexHalfSize + doorOffset;
+                        playerRotation = Math.PI;
+                        break;
+                    case 'north':
+                        playerPosition.x = 0;
+                        playerPosition.z = complexHalfSize - doorOffset;
+                        playerRotation = 0;
+                        break;
+                }
             }
 
             camera.position.set(playerPosition.x, playerPosition.y || 1.2, playerPosition.z);
@@ -4193,7 +4287,7 @@ async function handleCathedralDoorCrossing(exitDoorIndex) {
 
         // If random scene change is enabled, randomly change scene
         if (randomSceneChange) {
-            const availableScenes = ['gallery', 'alley', 'openspace', 'cathedral', 'pillars'];
+            const availableScenes = ['gallery', 'alley', 'openspace', 'cathedral', 'pillars', 'complex'];
             const randomIndex = Math.floor(Math.random() * availableScenes.length);
             const newSceneMode = availableScenes[randomIndex];
 
@@ -4332,6 +4426,7 @@ function updateStatsDisplay() {
                     <option value="maze" ${sceneMode === 'maze' ? 'selected' : ''}>Maze</option>
                     <option value="openspace" ${sceneMode === 'openspace' ? 'selected' : ''}>Open Space</option>
                     <option value="pillars" ${sceneMode === 'pillars' ? 'selected' : ''}>Pillars</option>
+                    <option value="complex" ${sceneMode === 'complex' ? 'selected' : ''}>Complex</option>
                     <option value="alley" ${sceneMode === 'alley' ? 'selected' : ''}>Endless Alley</option>
                     <option value="gallery" ${sceneMode === 'gallery' ? 'selected' : ''}>Gallery</option>
                     <option value="cathedral" ${sceneMode === 'cathedral' ? 'selected' : ''}>Cathedral</option>
@@ -4565,6 +4660,166 @@ function updateStatsDisplay() {
         minimapCheckbox.checked = minimapVisible;
     }
 
+}
+
+// Handle crossing complex door
+async function handleComplexDoorCrossing(exitDirection) {
+    if (sceneMode !== 'complex') return;
+
+    if (isTransitioningRoom) return;
+    isTransitioningRoom = true;
+
+    try {
+        await fadeToBlack();
+
+        if (randomSceneChange) {
+            const availableScenes = ['gallery', 'alley', 'openspace', 'cathedral', 'pillars', 'complex'];
+            const randomIndex = Math.floor(Math.random() * availableScenes.length);
+            const newSceneMode = availableScenes[randomIndex];
+            sceneMode = newSceneMode;
+
+            const sceneModeSelect = statsDiv?.querySelector('#scene-mode-select');
+            if (sceneModeSelect && sceneModeSelectHandler) {
+                sceneModeSelect.removeEventListener('change', sceneModeSelectHandler);
+                sceneModeSelect.value = sceneMode;
+                setTimeout(() => {
+                    sceneModeSelect.addEventListener('change', sceneModeSelectHandler);
+                }, 0);
+            }
+
+            await regenerateScene();
+
+            // Position player
+            if (newSceneMode === 'complex') {
+                // Duplicate of complex logic below
+                const size = getEffectiveSize();
+                const halfSize = (size * CELL_SIZE) / 2;
+                const doorOffset = 1.5;
+                switch (exitDirection) {
+                    case 'east':
+                        playerPosition.x = -halfSize + doorOffset;
+                        playerPosition.z = 0;
+                        playerRotation = -Math.PI / 2;
+                        break;
+                    case 'west':
+                        playerPosition.x = halfSize - doorOffset;
+                        playerPosition.z = 0;
+                        playerRotation = Math.PI / 2;
+                        break;
+                    case 'south':
+                        playerPosition.x = 0;
+                        playerPosition.z = -halfSize + doorOffset;
+                        playerRotation = Math.PI;
+                        break;
+                    case 'north':
+                        playerPosition.x = 0;
+                        playerPosition.z = halfSize - doorOffset;
+                        playerRotation = 0;
+                        break;
+                }
+            } else if (newSceneMode === 'pillars' || newSceneMode === 'openspace') {
+                const size = newSceneMode === 'pillars' ? 15 : openspaceSize;
+                const halfSize = (size * CELL_SIZE) / 2;
+                const doorOffset = 1.5;
+                switch (exitDirection) {
+                    case 'east':
+                        playerPosition.x = -halfSize + doorOffset;
+                        playerPosition.z = 0;
+                        playerRotation = -Math.PI / 2;
+                        break;
+                    case 'west':
+                        playerPosition.x = halfSize - doorOffset;
+                        playerPosition.z = 0;
+                        playerRotation = Math.PI / 2;
+                        break;
+                    case 'south':
+                        playerPosition.x = 0;
+                        playerPosition.z = -halfSize + doorOffset;
+                        playerRotation = Math.PI;
+                        break;
+                    case 'north':
+                        playerPosition.x = 0;
+                        playerPosition.z = halfSize - doorOffset;
+                        playerRotation = 0;
+                        break;
+                }
+            } else if (newSceneMode === 'cathedral') {
+                const doors = window.cathedralDoors;
+                if (doors) {
+                    const spawnDoor = Math.random() < 0.5 ? doors.door1 : doors.door2;
+                    const doorOffset = 2.0;
+                    if (spawnDoor.direction === 'north') {
+                        playerPosition.x = spawnDoor.x;
+                        playerPosition.z = spawnDoor.z - doorOffset;
+                        playerRotation = 0;
+                    } else if (spawnDoor.direction === 'south') {
+                        playerPosition.x = spawnDoor.x;
+                        playerPosition.z = spawnDoor.z + doorOffset;
+                        playerRotation = Math.PI;
+                    } else if (spawnDoor.direction === 'east') {
+                        playerPosition.x = spawnDoor.x - doorOffset;
+                        playerPosition.z = spawnDoor.z;
+                        playerRotation = Math.PI / 2;
+                    } else {
+                        playerPosition.x = spawnDoor.x + doorOffset;
+                        playerPosition.z = spawnDoor.z;
+                        playerRotation = -Math.PI / 2;
+                    }
+                }
+            } else if (newSceneMode === 'gallery') {
+                const doors = window.galleryDoors;
+                if (doors) {
+                    const spawnDoor = Math.random() < 0.5 ? doors.door1 : doors.door2;
+                    const doorOffset = 2.0;
+                    const spawnDist = doors.doorRadius - doorOffset;
+                    playerPosition.x = Math.cos(spawnDoor.angle) * spawnDist;
+                    playerPosition.z = Math.sin(spawnDoor.angle) * spawnDist;
+                    playerRotation = Math.atan2(playerPosition.x, playerPosition.z);
+                }
+            } else if (newSceneMode === 'alley') {
+                const size = getEffectiveSize();
+                const alleyZ = Math.floor(size / 2);
+                const halfSize = (size * CELL_SIZE) / 2;
+                playerPosition.x = halfSize - 1.5;
+                playerPosition.z = (alleyZ - size / 2) * CELL_SIZE + CELL_SIZE / 2;
+                playerRotation = Math.PI / 2;
+            }
+        } else {
+            // Endless complex
+            await regenerateScene();
+            const size = getEffectiveSize();
+            const halfSize = (size * CELL_SIZE) / 2;
+            const doorOffset = 1.5;
+            switch (exitDirection) {
+                case 'east':
+                    playerPosition.x = -halfSize + doorOffset;
+                    playerPosition.z = 0;
+                    playerRotation = -Math.PI / 2;
+                    break;
+                case 'west':
+                    playerPosition.x = halfSize - doorOffset;
+                    playerPosition.z = 0;
+                    playerRotation = Math.PI / 2;
+                    break;
+                case 'south':
+                    playerPosition.x = 0;
+                    playerPosition.z = -halfSize + doorOffset;
+                    playerRotation = Math.PI;
+                    break;
+                case 'north':
+                    playerPosition.x = 0;
+                    playerPosition.z = halfSize - doorOffset;
+                    playerRotation = 0;
+                    break;
+            }
+        }
+
+        camera.position.set(playerPosition.x, 1.2, playerPosition.z);
+        camera.rotation.y = playerRotation;
+        await fadeFromBlack();
+    } finally {
+        isTransitioningRoom = false;
+    }
 }
 
 // Handle window resize
