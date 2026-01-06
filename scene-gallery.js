@@ -194,6 +194,12 @@ class GalleryScene extends SceneController {
     async createPaintingForWall(i, group, textureLoader, textureStyle) {
         const wall = this.galleryWalls[i];
 
+        // Check if wall exists (might be cleared if scene regenerated during loading)
+        if (!wall || !wall.userData) {
+            if (typeof loadedImagesCount !== 'undefined') loadedImagesCount++;
+            return;
+        }
+
         // Skip painting on door walls
         if (window.galleryDoors) {
             if (i === window.galleryDoors.door1.wallIndex || i === window.galleryDoors.door2.wallIndex) {
