@@ -9,13 +9,13 @@ const CELL_SIZE = 2;
 function getEffectiveSize() {
     // Special case for openspace (uses variable size)
     if (sceneMode === 'openspace') return openspaceSize;
-    
+
     // Delegate to active scene controller
     const activeScene = getActiveScene();
     if (activeScene && typeof activeScene.getEffectiveSize === 'function') {
         return activeScene.getEffectiveSize();
     }
-    
+
     // Fallback to default MAZE_SIZE if scene not found or method missing
     return MAZE_SIZE;
 }
@@ -46,7 +46,7 @@ let loadedImagesCount = 0; // Number of images loaded so far
 let totalImagesToLoad = 0; // Total number of images to load
 let cancelLoading = false; // Flag to cancel current loading operation
 let statsVisible = false; // Stats visibility state
-let sceneMode = 'complex'; // 'maze' or 'openspace'
+let sceneMode = 'maze'; // 'maze' or 'openspace'
 let wikipediaWalls = new Set(); // Track which walls have Wikipedia textures (format: "type-x-y")
 let globalWallMeshMap = null; // Global reference to wall mesh map for loading paintings on demand
 let globalCreateFramedPicture = null; // Global reference to createFramedPicture function
@@ -756,6 +756,50 @@ async function createMaze(wallData) {
                                 centerY: wallWorldY,
                                 plateY: wallWorldY
                             });
+                        }
+
+                        // Create title plate for entire wall mode
+                        if (title) {
+                            // Get text texture and dimensions
+                            const textData = createTextTexture(title);
+                            const plateWidth = textData.width;
+                            const plateHeight = textData.height;
+
+                            // Create plate geometry
+                            const plateGeometry = new THREE.PlaneGeometry(plateWidth, plateHeight);
+                            const plateMaterial = new THREE.MeshLambertMaterial({
+                                map: textData.texture,
+                                transparent: true,
+                                side: THREE.DoubleSide
+                            });
+                            const plate = new THREE.Mesh(plateGeometry, plateMaterial);
+
+                            // Position plate at bottom center of the wall, slightly in front of the picture
+                            // Wall height is WALL_HEIGHT. Bottom is -WALL_HEIGHT/2.
+                            // Place it slightly above bottom edge
+                            const plateY = -wallHeight / 2 + plateHeight / 2 + 0.1;
+                            plate.position.set(0, plateY, 0.002); // 0.002 to stand out from picture (at 0) and wall (at offset)
+
+                            // Note: In entirewall mode, frameGroup is already offset from wall.
+                            // frameGroup local Z=0 is at the wall surface + offset.
+                            // The picture is at Z=0.
+                            // So plate at Z=0.002 is slightly in front of picture.
+
+                            // Wait, picture is at frameGroup local Z=0?
+                            // Line 731: frameGroup.add(picture). picture defaults to 0,0,0.
+                            // FrameGroup is offset from wall.
+                            // So local Z > 0 means further away from wall (towards room).
+                            // Yes, consistent with frameGroup setup.
+
+                            frameGroup.add(plate);
+
+                            // Update stored position with plate Y
+                            if (wallKey) {
+                                const pos = paintingPositions.get(`${wallKey}-${side}`);
+                                if (pos) {
+                                    pos.plateY = wall.position.y + plateY;
+                                }
+                            }
                         }
                     } else {
                         // W95 STYLE: Framed picture with aspect ratio preserved
