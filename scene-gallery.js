@@ -79,18 +79,27 @@ class GalleryScene extends SceneController {
         window.galleryNumSides = this.numSides;
 
         // Load paintings on gallery walls
+        this.sceneGroup = group;
         this.loadGalleryPaintings(group, textureStyle);
     }
 
     async loadGalleryPaintings(group, textureStyle) {
         const textureLoader = new THREE.TextureLoader();
 
+        // Initialize gallery painting groups array if needed
+        if (!window.galleryPaintingGroups) {
+            window.galleryPaintingGroups = [];
+        }
+
         for (let i = 0; i < this.galleryWalls.length; i++) {
             const wall = this.galleryWalls[i];
 
             // Get a Wikipedia image
             const imageData = await getWikipediaImage();
-            if (!imageData || !imageData.imageUrl) continue;
+            if (!imageData || !imageData.imageUrl) {
+                if (typeof loadedImagesCount !== 'undefined') loadedImagesCount++;
+                continue;
+            }
 
             // Create painting frame
             const frameWidth = 1.5;
@@ -161,6 +170,12 @@ class GalleryScene extends SceneController {
             paintingGroup.lookAt(0, 1.2, 0);
 
             group.add(paintingGroup);
+
+            // Track painting group for reload functionality
+            window.galleryPaintingGroups[i] = paintingGroup;
+
+            // Update progress tracking
+            if (typeof loadedImagesCount !== 'undefined') loadedImagesCount++;
 
             // Add ceiling light above painting (backrooms only)
             if (textureStyle === 'backrooms') {

@@ -2686,6 +2686,29 @@ function updateAlleyFog() {
 
 // Clear all paintings from walls
 function clearAllPaintings() {
+    // Clear gallery paintings if in gallery mode
+    if (sceneMode === 'gallery' && window.galleryPaintingGroups) {
+        const activeScene = getActiveScene();
+        if (activeScene && activeScene.sceneGroup) {
+            for (let i = 0; i < window.galleryPaintingGroups.length; i++) {
+                const paintingGroup = window.galleryPaintingGroups[i];
+                if (paintingGroup && paintingGroup.parent) {
+                    activeScene.sceneGroup.remove(paintingGroup);
+                    // Dispose of geometries and materials
+                    paintingGroup.traverse(obj => {
+                        if (obj.geometry) obj.geometry.dispose();
+                        if (obj.material) {
+                            if (obj.material.map) obj.material.map.dispose();
+                            obj.material.dispose();
+                        }
+                    });
+                }
+            }
+        }
+        window.galleryPaintingGroups = [];
+        return;
+    }
+
     if (!globalWallMeshMap) return;
 
     // Remove all frame groups from walls
@@ -2741,6 +2764,19 @@ async function reloadAllPaintings() {
 
     // Clear existing paintings
     clearAllPaintings();
+
+    // Handle gallery scene reload separately
+    if (sceneMode === 'gallery') {
+        const activeScene = getActiveScene();
+        if (activeScene && typeof activeScene.loadGalleryPaintings === 'function') {
+            loadedImagesCount = 0;
+            totalImagesToLoad = window.galleryNumSides || 20;
+            await activeScene.loadGalleryPaintings(activeScene.sceneGroup, textureStyle);
+        }
+        isLoadingImages = false;
+        console.log('Finished loading gallery paintings');
+        return;
+    }
 
     // Get player position for distance sorting
     const playerStartX = playerPosition.x;
