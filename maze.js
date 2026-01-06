@@ -1304,9 +1304,20 @@ async function regenerateScene() {
         // Update scene background based on mode using scene controller
         const activeScene = getActiveScene();
         const sceneSetup = activeScene.getSceneSetup();
-        scene.background = new THREE.Color(sceneSetup.background);
-        if (sceneSetup.fog) {
-            scene.fog = new THREE.Fog(sceneSetup.fog.color, sceneSetup.fog.near, sceneSetup.fog.far);
+
+        // Override scene colors to white when using entirewall texture
+        let bgColor = sceneSetup.background;
+        let fogConfig = sceneSetup.fog;
+        if (textureStyle === 'entirewall') {
+            bgColor = 0xffffff;
+            if (fogConfig) {
+                fogConfig = { ...fogConfig, color: 0xffffff };
+            }
+        }
+
+        scene.background = new THREE.Color(bgColor);
+        if (fogConfig) {
+            scene.fog = new THREE.Fog(fogConfig.color, fogConfig.near, fogConfig.far);
         } else {
             scene.fog = null;
         }
@@ -3431,6 +3442,9 @@ async function fadeToBlack() {
         return;
     }
 
+    // Set overlay color based on texture style
+    fadeOverlay.style.background = textureStyle === 'entirewall' ? '#fff' : '#000';
+
     return new Promise((resolve) => {
         // Set transition first
         fadeOverlay.style.transition = 'opacity 0.3s ease-in-out';
@@ -3494,6 +3508,9 @@ async function handleAlleyCrossing() {
 
     // If random scene change is enabled, randomly change scene
     if (randomSceneChange) {
+        // Fade to black/white before transition
+        await fadeToBlack();
+
         const availableScenes = ['gallery', 'alley', 'openspace', 'cathedral'];
         const randomIndex = Math.floor(Math.random() * availableScenes.length);
         const newSceneMode = availableScenes[randomIndex];
@@ -3574,11 +3591,17 @@ async function handleAlleyCrossing() {
 
     console.log('Crossed alley boundary, loading fresh paintings...');
 
+    // Fade to black/white before transition
+    await fadeToBlack();
+
     // Clear current paintings
     clearAllPaintings();
 
     // Load new paintings
     await reloadAllPaintings();
+
+    // Fade back in
+    await fadeFromBlack();
 }
 
 // Handle crossing openspace door - generate new room with random size

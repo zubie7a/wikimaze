@@ -39,6 +39,9 @@ class AlleyScene extends SceneController {
         window.alleyFogPlanes = null;
         window.alleyWorldZ = this.alleyWorldZ;
 
+        // Fog color: white for entirewall, black otherwise
+        const fogColor = textureStyle === 'entirewall' ? 0xffffff : 0x000000;
+
         // Create gradient darkness at each end of the alley
         const numOuterLayers = 15;
         const outerZoneLength = CELL_SIZE * 3;
@@ -49,7 +52,7 @@ class AlleyScene extends SceneController {
             const opacity = 0.03 + (1 - t) * 0.08;
 
             const fogMaterial = new THREE.MeshBasicMaterial({
-                color: 0x000000,
+                color: fogColor,
                 transparent: true,
                 opacity: opacity,
                 side: THREE.DoubleSide,
@@ -85,7 +88,7 @@ class AlleyScene extends SceneController {
             const opacity = 0.08 + (1 - t) * 0.15;
 
             const fogMaterial = new THREE.MeshBasicMaterial({
-                color: 0x000000,
+                color: fogColor,
                 transparent: true,
                 opacity: opacity,
                 side: THREE.DoubleSide,
