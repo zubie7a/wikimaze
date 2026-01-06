@@ -257,8 +257,8 @@ async function createMaze(wallData) {
     // Reset creepy eyes (will be populated by alley or openspace+backrooms)
     creepyEyes = [];
 
-    // Skip default floor/ceiling for gallery mode (it creates its own circular one)
-    if (sceneMode !== 'gallery') {
+    // Skip default floor/ceiling for gallery and cathedral modes (they create their own)
+    if (sceneMode !== 'gallery' && sceneMode !== 'cathedral') {
         // Create floor - color/texture depends on texture style
         const floorGeometry = new THREE.PlaneGeometry(
             SIZE * CELL_SIZE,
@@ -322,8 +322,8 @@ async function createMaze(wallData) {
         group.add(ceiling);
     }
 
-    // Add ceiling lamps for backrooms style (skip for gallery - it has its own lamps)
-    if (textureStyle === 'backrooms' && sceneMode !== 'gallery') {
+    // Add ceiling lamps for backrooms style (skip for gallery and cathedral - they have their own or don't need them)
+    if (textureStyle === 'backrooms' && sceneMode !== 'gallery' && sceneMode !== 'cathedral') {
         // Clear previous flickering lights
         flickeringLights = [];
 
@@ -1752,6 +1752,16 @@ function isValidPosition(x, z) {
         }
         // No wall collision checks needed for gallery
         return true;
+    } else if (sceneMode === 'cathedral') {
+        // Cathedral mode: square boundary
+        const cathedralRoomWidth = window.cathedralRoomWidth || 40;
+        const halfRoom = cathedralRoomWidth / 2;
+        if (x < -halfRoom + playerRadius || x > halfRoom - playerRadius ||
+            z < -halfRoom + playerRadius || z > halfRoom - playerRadius) {
+            return false;
+        }
+        // No wall collision checks needed for cathedral
+        return true;
     } else {
         if (x < -halfSize + checkDist || x > halfSize - checkDist ||
             z < -halfSize + checkDist || z > halfSize - checkDist) {
@@ -2709,6 +2719,29 @@ function clearAllPaintings() {
         return;
     }
 
+    // Clear cathedral paintings if in cathedral mode
+    if (sceneMode === 'cathedral' && window.cathedralPaintingGroups) {
+        const activeScene = getActiveScene();
+        if (activeScene && activeScene.sceneGroup) {
+            for (let i = 0; i < window.cathedralPaintingGroups.length; i++) {
+                const paintingGroup = window.cathedralPaintingGroups[i];
+                if (paintingGroup && paintingGroup.parent) {
+                    activeScene.sceneGroup.remove(paintingGroup);
+                    // Dispose of geometries and materials
+                    paintingGroup.traverse(obj => {
+                        if (obj.geometry) obj.geometry.dispose();
+                        if (obj.material) {
+                            if (obj.material.map) obj.material.map.dispose();
+                            obj.material.dispose();
+                        }
+                    });
+                }
+            }
+        }
+        window.cathedralPaintingGroups = [];
+        return;
+    }
+
     if (!globalWallMeshMap) return;
 
     // Remove all frame groups from walls
@@ -2775,6 +2808,19 @@ async function reloadAllPaintings() {
         }
         isLoadingImages = false;
         console.log('Finished loading gallery paintings');
+        return;
+    }
+
+    // Handle cathedral scene reload separately
+    if (sceneMode === 'cathedral') {
+        const activeScene = getActiveScene();
+        if (activeScene && typeof activeScene.loadCathedralPaintings === 'function') {
+            loadedImagesCount = 0;
+            totalImagesToLoad = (window.cathedralGridWidth || 10) * (window.cathedralGridHeight || 20) * 4; // 4 walls
+            await activeScene.loadCathedralPaintings(activeScene.sceneGroup, textureStyle);
+        }
+        isLoadingImages = false;
+        console.log('Finished loading cathedral paintings');
         return;
     }
 
@@ -3002,6 +3048,7 @@ function updateStatsDisplay() {
                     <option value="openspace" ${sceneMode === 'openspace' ? 'selected' : ''}>Open Space</option>
                     <option value="alley" ${sceneMode === 'alley' ? 'selected' : ''}>Endless Alley</option>
                     <option value="gallery" ${sceneMode === 'gallery' ? 'selected' : ''}>Gallery</option>
+                    <option value="cathedral" ${sceneMode === 'cathedral' ? 'selected' : ''}>Cathedral</option>
                 </select>
             </div>
             <div style="margin-bottom: 8px; margin-top: 8px;">
