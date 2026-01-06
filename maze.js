@@ -48,6 +48,7 @@ let mazeGeneration = 0; // Counter to invalidate stale loading operations
 let globalAmbientLight = null; // Reference to ambient light for updating
 let globalDirectionalLight = null; // Reference to directional light for updating
 let globalGalleryCenterLight = null; // Reference to center point light for gallery W95
+let globalCathedralPlayerLight = null; // Reference to point light that follows player in cathedral backrooms
 let flickeringLights = []; // Array of {light, lamp, baseIntensity} for flickering effect
 let creepyEyes = []; // Array of blinking eye pairs [{leftEye, rightEye, glow, nextBlinkTime, isBlinking}, ...]
 
@@ -1244,38 +1245,58 @@ async function regenerateScene() {
                 scene.remove(globalGalleryCenterLight);
                 globalGalleryCenterLight = null;
             }
-        } else if (sceneMode === 'gallery' && textureStyle === 'w95') {
-            // Gallery with W95 texture: use point light from center
-            // Remove directional light if it exists
-            if (globalDirectionalLight && scene) {
-                scene.remove(globalDirectionalLight);
-                globalDirectionalLight = null;
-            }
-            // Add/update center point light
-            if (!globalGalleryCenterLight && scene) {
-                globalGalleryCenterLight = new THREE.PointLight(0xffffff, 1.5, 30, 2);
-                globalGalleryCenterLight.position.set(0, 3, 0); // Center of gallery, slightly above ground
-                scene.add(globalGalleryCenterLight);
+            // For cathedral backrooms, add point light that follows player
+            if (sceneMode === 'cathedral') {
+                if (!globalCathedralPlayerLight && scene) {
+                    globalCathedralPlayerLight = new THREE.PointLight(0xFFF5E0, 3.0, 5, 1.5);
+                    scene.add(globalCathedralPlayerLight);
+                }
+            } else {
+                // Remove cathedral player light if switching away from cathedral
+                if (globalCathedralPlayerLight && scene) {
+                    scene.remove(globalCathedralPlayerLight);
+                    globalCathedralPlayerLight = null;
+                }
             }
         } else {
-            // Other scenes/textures: use directional light
-            // Remove gallery center light if it exists
-            if (globalGalleryCenterLight && scene) {
-                scene.remove(globalGalleryCenterLight);
-                globalGalleryCenterLight = null;
+            // Remove cathedral player light if not backrooms
+            if (globalCathedralPlayerLight && scene) {
+                scene.remove(globalCathedralPlayerLight);
+                globalCathedralPlayerLight = null;
             }
-            if (!globalDirectionalLight && scene) {
-                globalDirectionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-                scene.add(globalDirectionalLight);
-            }
-            // Position light based on scene mode
-            if (globalDirectionalLight) {
-                if (sceneMode === 'gallery') {
-                    // Gallery (non-W95): light from directly above
-                    globalDirectionalLight.position.set(0, 20, 0);
-                } else {
-                    // Other scenes: diagonal light
-                    globalDirectionalLight.position.set(10, 10, 10);
+            if (sceneMode === 'gallery' && textureStyle === 'w95') {
+                // Gallery with W95 texture: use point light from center
+                // Remove directional light if it exists
+                if (globalDirectionalLight && scene) {
+                    scene.remove(globalDirectionalLight);
+                    globalDirectionalLight = null;
+                }
+                // Add/update center point light
+                if (!globalGalleryCenterLight && scene) {
+                    globalGalleryCenterLight = new THREE.PointLight(0xffffff, 1.5, 30, 2);
+                    globalGalleryCenterLight.position.set(0, 3, 0); // Center of gallery, slightly above ground
+                    scene.add(globalGalleryCenterLight);
+                }
+            } else {
+                // Other scenes/textures: use directional light
+                // Remove gallery center light if it exists
+                if (globalGalleryCenterLight && scene) {
+                    scene.remove(globalGalleryCenterLight);
+                    globalGalleryCenterLight = null;
+                }
+                if (!globalDirectionalLight && scene) {
+                    globalDirectionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+                    scene.add(globalDirectionalLight);
+                }
+                // Position light based on scene mode
+                if (globalDirectionalLight) {
+                    if (sceneMode === 'gallery') {
+                        // Gallery (non-W95): light from directly above
+                        globalDirectionalLight.position.set(0, 20, 0);
+                    } else {
+                        // Other scenes: diagonal light
+                        globalDirectionalLight.position.set(10, 10, 10);
+                    }
                 }
             }
         }
@@ -1420,25 +1441,45 @@ function init() {
         // No directional light for backrooms (ceiling lamps are the light source)
         globalDirectionalLight = null;
         globalGalleryCenterLight = null;
-    } else if (sceneMode === 'gallery' && textureStyle === 'w95') {
-        // Gallery with W95 texture: use point light from center
-        globalDirectionalLight = null;
-        globalGalleryCenterLight = new THREE.PointLight(0xffffff, 1.5, 30, 2);
-        globalGalleryCenterLight.position.set(0, 3, 0); // Center of gallery, slightly above ground
-        scene.add(globalGalleryCenterLight);
-    } else {
-        // Other scenes/textures: use directional light
-        globalGalleryCenterLight = null;
-        globalDirectionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-        // Position light based on scene mode
-        if (sceneMode === 'gallery') {
-            // Gallery (non-W95): light from directly above
-            globalDirectionalLight.position.set(0, 20, 0);
+        // For cathedral backrooms, add point light that follows player
+        if (sceneMode === 'cathedral') {
+            if (!globalCathedralPlayerLight) {
+                globalCathedralPlayerLight = new THREE.PointLight(0xFFF5E0, 3.0, 15, 1.5);
+                scene.add(globalCathedralPlayerLight);
+            }
         } else {
-            // Other scenes: diagonal light
-            globalDirectionalLight.position.set(10, 10, 10);
+            // Remove cathedral player light if switching away from cathedral
+            if (globalCathedralPlayerLight) {
+                scene.remove(globalCathedralPlayerLight);
+                globalCathedralPlayerLight = null;
+            }
         }
-        scene.add(globalDirectionalLight);
+    } else {
+        // Remove cathedral player light if not backrooms
+        if (globalCathedralPlayerLight) {
+            scene.remove(globalCathedralPlayerLight);
+            globalCathedralPlayerLight = null;
+        }
+        if (sceneMode === 'gallery' && textureStyle === 'w95') {
+            // Gallery with W95 texture: use point light from center
+            globalDirectionalLight = null;
+            globalGalleryCenterLight = new THREE.PointLight(0xffffff, 1.5, 30, 2);
+            globalGalleryCenterLight.position.set(0, 3, 0); // Center of gallery, slightly above ground
+            scene.add(globalGalleryCenterLight);
+        } else {
+            // Other scenes/textures: use directional light
+            globalGalleryCenterLight = null;
+            globalDirectionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            // Position light based on scene mode
+            if (sceneMode === 'gallery') {
+                // Gallery (non-W95): light from directly above
+                globalDirectionalLight.position.set(0, 20, 0);
+            } else {
+                // Other scenes: diagonal light
+                globalDirectionalLight.position.set(10, 10, 10);
+            }
+            scene.add(globalDirectionalLight);
+        }
     }
 
     // Generate and add maze
@@ -3037,6 +3078,16 @@ function animate() {
     updateAlleyFog();
     updateFlickeringLights();
     updateCreepyEyes();
+    
+    // Update cathedral player light position to follow camera
+    if (globalCathedralPlayerLight && sceneMode === 'cathedral' && textureStyle === 'backrooms') {
+        globalCathedralPlayerLight.position.set(
+            camera.position.x,
+            camera.position.y + 0.5, // Fixed height above ground (ground is at -0.5, so this is 1.5 units above ground)
+            camera.position.z
+        );
+    }
+    
     drawMinimap();
     if (statsVisible && statsDiv) {
         updateStatsDisplay();

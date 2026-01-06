@@ -355,7 +355,7 @@ class CathedralScene extends SceneController {
             floorTexture.wrapS = THREE.RepeatWrapping;
             floorTexture.wrapT = THREE.RepeatWrapping;
             floorTexture.repeat.set(10, 10);
-            return new THREE.MeshLambertMaterial({ map: floorTexture });
+            return new THREE.MeshStandardMaterial({ map: floorTexture });
         } else if (textureStyle === 'entirewall') {
             return new THREE.MeshLambertMaterial({ color: 0xE8E8E8 });
         }
