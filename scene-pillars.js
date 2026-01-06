@@ -25,7 +25,7 @@ class PillarsScene extends SceneController {
         // Add pillars in a grid pattern in the middle area
         // Pillars are wall segments surrounding a single cell
         this.pillarPositions = [];
-        const margin = 3; // Keep pillars away from edges
+        const margin = 4; // Start at 4 to center pillars (4, 7, 10) in 15x15 grid
         const spacing = 3; // Space between pillars
 
         for (let y = margin; y < size - margin; y += spacing) {

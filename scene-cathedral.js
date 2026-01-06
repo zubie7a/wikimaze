@@ -582,9 +582,9 @@ class CathedralScene extends SceneController {
         return { x: 0, z: 0, rotation: 0 };
     }
 
-    // No minimap for cathedral
+    // Enable minimap for cathedral
     showMinimap() {
-        return false;
+        return true;
     }
 }
 

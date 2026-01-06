@@ -1388,6 +1388,35 @@ async function regenerateScene() {
                 playerPosition.x = halfSize - doorOffset; // Right side (east) of the alley
                 playerPosition.z = (alleyZ - SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
                 playerRotation = Math.PI / 2; // Face east (down the alley)
+            } else if (sceneMode === 'pillars') {
+                // Spawn at a random door in pillars
+                const pillarsSize = 15;
+                const newHalfSize = (pillarsSize * CELL_SIZE) / 2;
+                const doorOffset = 1.5;
+                const doors = ['north', 'south', 'east', 'west'];
+                const randomDoor = doors[Math.floor(Math.random() * doors.length)];
+                switch (randomDoor) {
+                    case 'east':
+                        playerPosition.x = newHalfSize - doorOffset;
+                        playerPosition.z = 0;
+                        playerRotation = Math.PI / 2; // Face west (toward center)
+                        break;
+                    case 'west':
+                        playerPosition.x = -newHalfSize + doorOffset;
+                        playerPosition.z = 0;
+                        playerRotation = -Math.PI / 2; // Face east (toward center)
+                        break;
+                    case 'south':
+                        playerPosition.x = 0;
+                        playerPosition.z = newHalfSize - doorOffset;
+                        playerRotation = 0; // Face north (toward center)
+                        break;
+                    case 'north':
+                        playerPosition.x = 0;
+                        playerPosition.z = -newHalfSize + doorOffset;
+                        playerRotation = Math.PI; // Face south (toward center)
+                        break;
+                }
             }
         }
 
