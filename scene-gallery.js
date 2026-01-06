@@ -104,7 +104,7 @@ class GalleryScene extends SceneController {
 
             // Painting canvas
             const canvasGeometry = new THREE.PlaneGeometry(frameWidth, frameHeight);
-            const canvasMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
+            const canvasMaterial = new THREE.MeshLambertMaterial({ color: 0xffffff });
             const canvas = new THREE.Mesh(canvasGeometry, canvasMaterial);
             canvas.position.z = frameDepth / 2 + 0.001;
 
@@ -153,16 +153,47 @@ class GalleryScene extends SceneController {
             // Position painting on wall (slightly in front of wall, toward center)
             const wallAngle = wall.userData.angle;
             const paintingDist = this.radius - 0.15; // Slightly in front of wall
-            paintingGroup.position.set(
-                Math.cos(wallAngle) * paintingDist,
-                1.2, // Eye level
-                Math.sin(wallAngle) * paintingDist
-            );
+            const paintingX = Math.cos(wallAngle) * paintingDist;
+            const paintingZ = Math.sin(wallAngle) * paintingDist;
+            paintingGroup.position.set(paintingX, 1.2, paintingZ);
 
             // Use lookAt to face the center
             paintingGroup.lookAt(0, 1.2, 0);
 
             group.add(paintingGroup);
+
+            // Add ceiling light above painting (backrooms only)
+            if (textureStyle === 'backrooms') {
+                const lampSize = 0.5; // Same as maze.js
+                const lampHeight = 0.05;
+                const lampY = this.wallHeight - 0.52; // Just below ceiling
+
+                // Same material as maze.js
+                const lampMaterial = new THREE.MeshBasicMaterial({
+                    color: 0xFFFAE6, // Warm fluorescent white
+                    side: THREE.DoubleSide
+                });
+
+                // Create lamp fixture (square box like maze.js)
+                const lampGeometry = new THREE.BoxGeometry(lampSize, lampHeight, lampSize);
+                const lamp = new THREE.Mesh(lampGeometry, lampMaterial);
+
+                // Position above painting (slightly inward toward center)
+                const lampDist = this.radius - 0.8;
+                const lampX = Math.cos(wallAngle) * lampDist;
+                const lampZ = Math.sin(wallAngle) * lampDist;
+                lamp.position.set(lampX, lampY, lampZ);
+
+                // Rotate to face center (same as walls)
+                lamp.lookAt(0, lampY, 0);
+
+                group.add(lamp);
+
+                // Add point light below lamp (same as maze.js)
+                const lampLight = new THREE.PointLight(0xFFF5E0, 0.8, 5, 1.5);
+                lampLight.position.set(lampX, lampY - 0.1, lampZ);
+                group.add(lampLight);
+            }
         }
     }
 

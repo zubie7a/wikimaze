@@ -322,8 +322,8 @@ async function createMaze(wallData) {
         group.add(ceiling);
     }
 
-    // Add ceiling lamps for backrooms style
-    if (textureStyle === 'backrooms') {
+    // Add ceiling lamps for backrooms style (skip for gallery - it has its own lamps)
+    if (textureStyle === 'backrooms' && sceneMode !== 'gallery') {
         // Clear previous flickering lights
         flickeringLights = [];
 
