@@ -2953,7 +2953,6 @@ function updateStatsDisplay() {
                     <option value="maze" ${sceneMode === 'maze' ? 'selected' : ''}>Maze</option>
                     <option value="openspace" ${sceneMode === 'openspace' ? 'selected' : ''}>Open Space</option>
                     <option value="alley" ${sceneMode === 'alley' ? 'selected' : ''}>Endless Alley</option>
-                    <option value="book" ${sceneMode === 'book' ? 'selected' : ''}>Book</option>
                 </select>
             </div>
             <div style="margin-bottom: 8px; margin-top: 8px;">

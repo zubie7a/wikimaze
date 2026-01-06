@@ -39,9 +39,9 @@ class SceneController {
         // Override for scene-specific state reset
     }
 
-    // Return movement speed for this scene
+    // Return movement speed for this scene (default: slower speed like alley)
     getMoveSpeed(baseSpeed) {
-        return baseSpeed;
+        return baseSpeed / 4;
     }
 
     // Handle position wrapping/transitions (e.g., alley wrapping, door transitions)

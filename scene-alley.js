@@ -185,12 +185,7 @@ class AlleyScene extends SceneController {
         };
     }
 
-    // Slower movement in alley
-    getMoveSpeed(baseSpeed) {
-        return baseSpeed / 4;
-    }
-
-    // Handle X-axis wrapping for endless alley
+    // Movement speed inherited from base class (baseSpeed / 4)
     handleWrapping(position, size) {
         const minX = (-size / 2) * CELL_SIZE;
         const maxX = (size / 2) * CELL_SIZE;
