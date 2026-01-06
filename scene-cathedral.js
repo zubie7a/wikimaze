@@ -5,7 +5,7 @@ class CathedralScene extends SceneController {
     constructor() {
         super('cathedral');
         this.gridWidth = 5; // Number of painting columns per wall
-        this.gridHeight = 20; // Number of painting rows per wall
+        this.gridHeight = 15; // Number of painting rows per wall
         this.wallSegments = []; // Store all wall segment references
         this.segmentWidth = null; // Will be calculated based on room size
         this.segmentHeight = 3; // Height of each segment
@@ -58,6 +58,37 @@ class CathedralScene extends SceneController {
         window.cathedralGridWidth = this.gridWidth;
         window.cathedralGridHeight = this.gridHeight;
         window.cathedralRoomWidth = this.roomWidth;
+
+        // Add white fog layers starting from the 5th floor (row 5)
+        const fogStartRow = 1;
+        const numFogLayers = 100; // Many more layers for gradual effect
+        const fogLayerSpacing = 0.5; // Tighter spacing for smoother transition
+        
+        for (let i = 0; i < numFogLayers; i++) {
+            // Calculate Y position starting from row 5
+            const rowY = (fogStartRow * this.segmentHeight) + this.segmentHeight / 2 - 0.5;
+            const fogY = rowY + (i * fogLayerSpacing);
+            
+            // Increase opacity gradually as we go up (from 0.02 at bottom to 0.25 at top)
+            // Use a smoother curve for more gradual transition
+            const t = i / numFogLayers; // 0 to 1
+            const opacity = 0.02 + (t * t) * 0.23; // Quadratic curve for smoother fade
+            
+            // Create fog plane covering the entire room
+            const fogGeometry = new THREE.PlaneGeometry(this.roomWidth, this.roomWidth);
+            const fogMaterial = new THREE.MeshBasicMaterial({
+                color: 0xFFFFFF, // White
+                transparent: true,
+                opacity: opacity,
+                side: THREE.DoubleSide,
+                depthWrite: false
+            });
+            
+            const fogPlane = new THREE.Mesh(fogGeometry, fogMaterial);
+            fogPlane.rotation.x = -Math.PI / 2; // Horizontal plane
+            fogPlane.position.y = fogY;
+            group.add(fogPlane);
+        }
 
         // Load paintings on cathedral walls
         // Initialize progress tracking (global variables from maze.js)
