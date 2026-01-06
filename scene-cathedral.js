@@ -22,6 +22,7 @@ class CathedralScene extends SceneController {
     createContent(group, textureStyle, size) {
         console.log('Cathedral createContent called', { textureStyle, size });
         this.sceneGroup = group;
+        this.wallSegments = []; // Reset wall segments for regeneration
 
         // Set room dimensions
         this.roomWidth = size * CELL_SIZE;
@@ -59,21 +60,134 @@ class CathedralScene extends SceneController {
         window.cathedralGridHeight = this.gridHeight;
         window.cathedralRoomWidth = this.roomWidth;
 
+        // Create doors at 2 random ground-level (row 0) wall segments
+        // Pick from all 4 walls: north, south, east, west - each has gridWidth columns
+        const directions = ['north', 'south', 'east', 'west'];
+        const doorWidth = CELL_SIZE * 0.6;
+        const doorHeight = this.segmentHeight * 0.85;
+        const doorY = doorHeight / 2 - 0.5;
+        const doorMaterial = new THREE.MeshBasicMaterial({
+            color: 0x000000,
+            side: THREE.DoubleSide
+        });
+
+        // Build list of all ground-level segments (row 0)
+        const groundSegments = [];
+        for (const dir of directions) {
+            for (let col = 0; col < this.gridWidth; col++) {
+                groundSegments.push({ direction: dir, col: col });
+            }
+        }
+
+        // Pick 2 random, non-adjacent segments
+        const door1Idx = Math.floor(Math.random() * groundSegments.length);
+        let door2Idx;
+        do {
+            door2Idx = Math.floor(Math.random() * groundSegments.length);
+        } while (door2Idx === door1Idx);
+
+        const door1Segment = groundSegments[door1Idx];
+        const door2Segment = groundSegments[door2Idx];
+
+        // Calculate door positions based on wall direction
+        const getDoorPosition = (segment) => {
+            const { direction, col } = segment;
+            let xPos, zPos, rotY;
+
+            if (direction === 'north') {
+                xPos = -halfRoom + (col * this.segmentWidth) + this.segmentWidth / 2;
+                zPos = halfRoom;
+                rotY = Math.PI; // Face inward (south)
+            } else if (direction === 'south') {
+                xPos = -halfRoom + (col * this.segmentWidth) + this.segmentWidth / 2;
+                zPos = -halfRoom;
+                rotY = 0; // Face inward (north)
+            } else if (direction === 'east') {
+                xPos = halfRoom;
+                zPos = -halfRoom + (col * this.segmentWidth) + this.segmentWidth / 2;
+                rotY = -Math.PI / 2; // Face inward (west)
+            } else { // west
+                xPos = -halfRoom;
+                zPos = -halfRoom + (col * this.segmentWidth) + this.segmentWidth / 2;
+                rotY = Math.PI / 2; // Face inward (east)
+            }
+
+            return { x: xPos, z: zPos, rotY: rotY };
+        };
+
+        const door1Pos = getDoorPosition(door1Segment);
+        const door2Pos = getDoorPosition(door2Segment);
+
+        // Create door 1
+        const door1 = new THREE.Mesh(
+            new THREE.PlaneGeometry(doorWidth, doorHeight),
+            doorMaterial.clone()
+        );
+        // Position slightly inward from wall
+        const doorOffset = 0.1;
+        if (door1Segment.direction === 'north') {
+            door1.position.set(door1Pos.x, doorY, door1Pos.z - doorOffset);
+        } else if (door1Segment.direction === 'south') {
+            door1.position.set(door1Pos.x, doorY, door1Pos.z + doorOffset);
+        } else if (door1Segment.direction === 'east') {
+            door1.position.set(door1Pos.x - doorOffset, doorY, door1Pos.z);
+        } else {
+            door1.position.set(door1Pos.x + doorOffset, doorY, door1Pos.z);
+        }
+        door1.rotation.y = door1Pos.rotY;
+        group.add(door1);
+
+        // Create door 2
+        const door2 = new THREE.Mesh(
+            new THREE.PlaneGeometry(doorWidth, doorHeight),
+            doorMaterial.clone()
+        );
+        if (door2Segment.direction === 'north') {
+            door2.position.set(door2Pos.x, doorY, door2Pos.z - doorOffset);
+        } else if (door2Segment.direction === 'south') {
+            door2.position.set(door2Pos.x, doorY, door2Pos.z + doorOffset);
+        } else if (door2Segment.direction === 'east') {
+            door2.position.set(door2Pos.x - doorOffset, doorY, door2Pos.z);
+        } else {
+            door2.position.set(door2Pos.x + doorOffset, doorY, door2Pos.z);
+        }
+        door2.rotation.y = door2Pos.rotY;
+        group.add(door2);
+
+        // Store door info globally for crossing detection
+        window.cathedralDoors = {
+            door1: {
+                direction: door1Segment.direction,
+                col: door1Segment.col,
+                x: door1Pos.x,
+                z: door1Pos.z
+            },
+            door2: {
+                direction: door2Segment.direction,
+                col: door2Segment.col,
+                x: door2Pos.x,
+                z: door2Pos.z
+            },
+            doorWidth: doorWidth,
+            roomWidth: this.roomWidth,
+            segmentWidth: this.segmentWidth
+        };
+
         // Add white fog layers starting from the 5th floor (row 5)
         const fogStartRow = 1;
         const numFogLayers = 100; // Many more layers for gradual effect
         const fogLayerSpacing = 0.5; // Tighter spacing for smoother transition
-        
+
         for (let i = 0; i < numFogLayers; i++) {
             // Calculate Y position starting from row 5
             const rowY = (fogStartRow * this.segmentHeight) + this.segmentHeight / 2 - 0.5;
             const fogY = rowY + (i * fogLayerSpacing);
-            
+
             // Increase opacity gradually as we go up (from 0.02 at bottom to 0.25 at top)
             // Use a smoother curve for more gradual transition
             const t = i / numFogLayers; // 0 to 1
             const opacity = 0.02 + (t * t) * 0.23; // Quadratic curve for smoother fade
-            
+
             // Create fog plane covering the entire room
             const fogGeometry = new THREE.PlaneGeometry(this.roomWidth, this.roomWidth);
             const fogMaterial = new THREE.MeshBasicMaterial({
@@ -83,34 +197,15 @@ class CathedralScene extends SceneController {
                 side: THREE.DoubleSide,
                 depthWrite: false
             });
-            
+
             const fogPlane = new THREE.Mesh(fogGeometry, fogMaterial);
             fogPlane.rotation.x = -Math.PI / 2; // Horizontal plane
             fogPlane.position.y = fogY;
             group.add(fogPlane);
         }
 
-        // Load paintings on cathedral walls
-        // Initialize progress tracking (global variables from maze.js)
-        // Note: We don't start loading here automatically to avoid double-loading
-        // Loading will be triggered by reloadAllPaintings() when needed (e.g., texture changes)
-        // For initial scene creation, we'll let reloadAllPaintings handle it if it's called
-        // Otherwise, we start loading here only if not already loading
-        try {
-            // Only start loading if not already loading (to prevent double-loading)
-            if (typeof isLoadingImages !== 'undefined' && !isLoadingImages) {
-                isLoadingImages = true;
-                loadedImagesCount = 0;
-                totalImagesToLoad = this.gridWidth * this.gridHeight * 4; // 4 walls
-                // Start the loading process
-                console.log('Starting cathedral painting load from createContent...');
-                this.loadCathedralPaintings(group, textureStyle);
-            } else {
-                console.log('Skipping cathedral loading in createContent (already loading or will be handled by reloadAllPaintings)');
-            }
-        } catch (e) {
-            console.log('Global loading counters not available yet');
-        }
+        // Painting loading is handled by regenerateScene calling reloadAllPaintings
+        // Do not start loading here to avoid conflicts with the reload flow
     }
 
     createWall(group, material, baseX, baseZ, direction) {
@@ -161,18 +256,10 @@ class CathedralScene extends SceneController {
 
     async loadCathedralPaintings(group, textureStyle) {
         console.log('loadCathedralPaintings called, wallSegments:', this.wallSegments.length);
-        
-        // Prevent concurrent loading - if already loading, wait for it to finish or return
-        if (typeof isLoadingImages !== 'undefined' && isLoadingImages) {
-            console.log('Cathedral loading already in progress, skipping duplicate call');
-            return;
-        }
-        
-        // Set loading flag immediately to prevent concurrent calls
-        if (typeof isLoadingImages !== 'undefined') {
-            isLoadingImages = true;
-        }
-        
+
+        // Capture current generation to detect if we've been invalidated
+        const myGeneration = typeof mazeGeneration !== 'undefined' ? mazeGeneration : 0;
+
         const textureLoader = new THREE.TextureLoader();
 
         // Initialize painting groups tracking
@@ -199,22 +286,48 @@ class CathedralScene extends SceneController {
         console.log('Loading', sortedRows.length, 'floors');
 
         for (const row of sortedRows) {
+            // Check for cancellation or generation change
+            if ((typeof cancelLoading !== 'undefined' && cancelLoading) ||
+                (typeof mazeGeneration !== 'undefined' && mazeGeneration !== myGeneration)) {
+                console.log('Cathedral loading cancelled (generation change or cancel flag)');
+                return;
+            }
+
             const wallsInRow = wallsByRow[row];
             console.log('Loading floor', row, 'with', wallsInRow.length, 'walls');
 
             // Load paintings in batches using generic utility
             await processInBatches(
                 wallsInRow,
-                (wall) => this.createPaintingForWall(wall, group, textureLoader, textureStyle),
+                (wall) => this.createPaintingForWall(wall, group, textureLoader, textureStyle, myGeneration),
                 5 // Batch size: 5 images at a time for better responsiveness
             );
         }
 
         console.log('Cathedral painting load complete');
-        if (typeof isLoadingImages !== 'undefined') isLoadingImages = false;
     }
 
-    async createPaintingForWall(wall, group, textureLoader, textureStyle) {
+    async createPaintingForWall(wall, group, textureLoader, textureStyle, myGeneration) {
+        // Check for cancellation or generation change before doing any work
+        if ((typeof cancelLoading !== 'undefined' && cancelLoading) ||
+            (typeof mazeGeneration !== 'undefined' && myGeneration !== undefined && mazeGeneration !== myGeneration)) {
+            return;
+        }
+
+        // Skip painting on door wall segments (row 0 walls with doors)
+        if (window.cathedralDoors && wall.userData.gridRow === 0) {
+            const doors = window.cathedralDoors;
+            const wallDir = wall.userData.direction;
+            const wallCol = wall.userData.gridCol;
+
+            // Check if this segment is a door
+            if ((doors.door1.direction === wallDir && doors.door1.col === wallCol) ||
+                (doors.door2.direction === wallDir && doors.door2.col === wallCol)) {
+                if (typeof loadedImagesCount !== 'undefined') loadedImagesCount++;
+                return;
+            }
+        }
+
         // Check for and remove any existing painting on this wall
         const wallIndex = wall.userData.wallIndex;
         if (window.cathedralPaintingMap && window.cathedralPaintingMap.has(wallIndex)) {
@@ -242,6 +355,13 @@ class CathedralScene extends SceneController {
 
         // Get a Wikipedia image
         const imageData = await getWikipediaImage();
+
+        // Check again for cancellation after async call
+        if ((typeof cancelLoading !== 'undefined' && cancelLoading) ||
+            (typeof mazeGeneration !== 'undefined' && myGeneration !== undefined && mazeGeneration !== myGeneration)) {
+            return;
+        }
+
         if (!imageData || !imageData.imageUrl) {
             if (typeof loadedImagesCount !== 'undefined') loadedImagesCount++;
             return;
