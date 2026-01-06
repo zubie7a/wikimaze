@@ -128,6 +128,10 @@ class CathedralScene extends SceneController {
         if (!window.cathedralPaintingGroups) {
             window.cathedralPaintingGroups = [];
         }
+        // Initialize Map to track paintings by wall index (for preventing duplicates)
+        if (!window.cathedralPaintingMap) {
+            window.cathedralPaintingMap = new Map();
+        }
 
         // Group walls by row (floor level)
         const wallsByRow = {};
@@ -162,6 +166,31 @@ class CathedralScene extends SceneController {
     }
 
     async createPaintingForWall(wall, group, textureLoader, textureStyle) {
+        // Check for and remove any existing painting on this wall
+        const wallIndex = wall.userData.wallIndex;
+        if (window.cathedralPaintingMap && window.cathedralPaintingMap.has(wallIndex)) {
+            const existing = window.cathedralPaintingMap.get(wallIndex);
+            if (existing && existing.parent) {
+                existing.parent.remove(existing);
+                // Dispose of existing painting's resources
+                existing.traverse((child) => {
+                    if (child.geometry) child.geometry.dispose();
+                    if (child.material) {
+                        if (Array.isArray(child.material)) {
+                            child.material.forEach(mat => {
+                                if (mat.map) mat.map.dispose();
+                                mat.dispose();
+                            });
+                        } else {
+                            if (child.material.map) child.material.map.dispose();
+                            child.material.dispose();
+                        }
+                    }
+                });
+            }
+            window.cathedralPaintingMap.delete(wallIndex);
+        }
+
         // Get a Wikipedia image
         const imageData = await getWikipediaImage();
         if (!imageData || !imageData.imageUrl) {
@@ -276,7 +305,12 @@ class CathedralScene extends SceneController {
 
         group.add(paintingGroup);
 
-        // Track painting group for reload functionality (by unique wall index)
+        // Track painting group by wall index (for preventing duplicates)
+        if (window.cathedralPaintingMap) {
+            window.cathedralPaintingMap.set(wallIndex, paintingGroup);
+        }
+
+        // Also track in array for reload functionality (backward compatibility)
         const paintingIndex = window.cathedralPaintingGroups.length;
         window.cathedralPaintingGroups[paintingIndex] = paintingGroup;
 

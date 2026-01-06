@@ -2827,6 +2827,10 @@ function clearAllPaintings() {
             }
         }
         window.cathedralPaintingGroups = [];
+        // Also clear the Map that tracks paintings by wall index
+        if (window.cathedralPaintingMap) {
+            window.cathedralPaintingMap.clear();
+        }
         return;
     }
 
