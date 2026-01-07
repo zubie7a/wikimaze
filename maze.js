@@ -281,7 +281,7 @@ async function getWikipediaImage() {
 }
 
 // Create the 3D maze from boundary walls
-async function createMaze(wallData) {
+async function createMaze(wallData, customStartCell = null) {
     const group = new THREE.Group();
     const { horizontalWalls, verticalWalls } = wallData;
     const SIZE = getEffectiveSize(); // Use effective size for this scene
@@ -1013,9 +1013,11 @@ async function createMaze(wallData) {
         const myGeneration = mazeGeneration;
 
         // BFS to get cells in exploration order
-        // Start position depends on scene mode
+        // Start position depends on scene mode or custom override
         let startCell;
-        if (sceneMode === 'alley') {
+        if (customStartCell) {
+            startCell = customStartCell;
+        } else if (sceneMode === 'alley') {
             const alleyZ = Math.floor(MAZE_SIZE / 2);
             startCell = { x: 0, z: alleyZ };
         } else {
@@ -1288,82 +1290,6 @@ async function regenerateScene() {
         // Increment generation to invalidate any stale loading operations
         mazeGeneration++;
 
-        // Generate and add new maze
-        mazeData = generateMaze(getEffectiveSize());
-        currentMazeGroup = await createMaze(mazeData);
-        scene.add(currentMazeGroup);
-
-        // Update lighting based on texture style
-        if (globalAmbientLight) {
-            globalAmbientLight.intensity = textureStyle === 'backrooms' ? 0.15 : 0.6;
-        }
-        // Add/remove directional light based on texture style and scene mode
-        if (textureStyle === 'backrooms') {
-            if (globalDirectionalLight && scene) {
-                scene.remove(globalDirectionalLight);
-                globalDirectionalLight = null;
-            }
-            // Remove gallery center light if it exists
-            if (globalGalleryCenterLight && scene) {
-                scene.remove(globalGalleryCenterLight);
-                globalGalleryCenterLight = null;
-            }
-            // For cathedral backrooms, add point light that follows player
-            if (sceneMode === 'cathedral' || sceneMode === 'complex') {
-                if (!globalPlayerLight && scene) {
-                    globalPlayerLight = new THREE.PointLight(0xFFF5E0, 3.0, 5, 1.5);
-                    scene.add(globalPlayerLight);
-                }
-            } else {
-                // Remove player light if switching away from cathedral/complex or backrooms
-                if (globalPlayerLight && scene) {
-                    scene.remove(globalPlayerLight);
-                    globalPlayerLight = null;
-                }
-            }
-        } else {
-            // Remove player light if not backrooms
-            if (globalPlayerLight && scene) {
-                scene.remove(globalPlayerLight);
-                globalPlayerLight = null;
-            }
-            if (sceneMode === 'gallery' && textureStyle === 'w95') {
-                // Gallery with W95 texture: use point light from center
-                // Remove directional light if it exists
-                if (globalDirectionalLight && scene) {
-                    scene.remove(globalDirectionalLight);
-                    globalDirectionalLight = null;
-                }
-                // Add/update center point light
-                if (!globalGalleryCenterLight && scene) {
-                    globalGalleryCenterLight = new THREE.PointLight(0xffffff, 1.5, 30, 2);
-                    globalGalleryCenterLight.position.set(0, 3, 0); // Center of gallery, slightly above ground
-                    scene.add(globalGalleryCenterLight);
-                }
-            } else {
-                // Other scenes/textures: use directional light
-                // Remove gallery center light if it exists
-                if (globalGalleryCenterLight && scene) {
-                    scene.remove(globalGalleryCenterLight);
-                    globalGalleryCenterLight = null;
-                }
-                if (!globalDirectionalLight && scene) {
-                    globalDirectionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-                    scene.add(globalDirectionalLight);
-                }
-                // Position light based on scene mode
-                if (globalDirectionalLight) {
-                    if (sceneMode === 'gallery') {
-                        // Gallery (non-W95): light from directly above
-                        globalDirectionalLight.position.set(0, 20, 0);
-                    } else {
-                        // Other scenes: diagonal light
-                        globalDirectionalLight.position.set(10, 10, 10);
-                    }
-                }
-            }
-        }
-
         // Update scene background based on mode using scene controller
         const activeScene = getActiveScene();
         const sceneSetup = activeScene.getSceneSetup();
@@ -1509,6 +1435,87 @@ async function regenerateScene() {
                 }
             }
         }
+
+        // Calculate start cell for image loading order (closest to spawn)
+        const startCell = worldToGrid(playerPosition.x, playerPosition.z);
+
+        // Generate and add new maze
+        mazeData = generateMaze(getEffectiveSize());
+        currentMazeGroup = await createMaze(mazeData, startCell);
+        scene.add(currentMazeGroup);
+
+        // Update lighting based on texture style
+        if (globalAmbientLight) {
+            globalAmbientLight.intensity = textureStyle === 'backrooms' ? 0.15 : 0.6;
+        }
+        // Add/remove directional light based on texture style and scene mode
+        if (textureStyle === 'backrooms') {
+            if (globalDirectionalLight && scene) {
+                scene.remove(globalDirectionalLight);
+                globalDirectionalLight = null;
+            }
+            // Remove gallery center light if it exists
+            if (globalGalleryCenterLight && scene) {
+                scene.remove(globalGalleryCenterLight);
+                globalGalleryCenterLight = null;
+            }
+            // For cathedral backrooms, add point light that follows player
+            if (sceneMode === 'cathedral' || sceneMode === 'complex') {
+                if (!globalPlayerLight && scene) {
+                    globalPlayerLight = new THREE.PointLight(0xFFF5E0, 3.0, 5, 1.5);
+                    scene.add(globalPlayerLight);
+                }
+            } else {
+                // Remove player light if switching away from cathedral/complex or backrooms
+                if (globalPlayerLight && scene) {
+                    scene.remove(globalPlayerLight);
+                    globalPlayerLight = null;
+                }
+            }
+        } else {
+            // Remove player light if not backrooms
+            if (globalPlayerLight && scene) {
+                scene.remove(globalPlayerLight);
+                globalPlayerLight = null;
+            }
+            if (sceneMode === 'gallery' && textureStyle === 'w95') {
+                // Gallery with W95 texture: use point light from center
+                // Remove directional light if it exists
+                if (globalDirectionalLight && scene) {
+                    scene.remove(globalDirectionalLight);
+                    globalDirectionalLight = null;
+                }
+                // Add/update center point light
+                if (!globalGalleryCenterLight && scene) {
+                    globalGalleryCenterLight = new THREE.PointLight(0xffffff, 1.5, 30, 2);
+                    globalGalleryCenterLight.position.set(0, 3, 0); // Center of gallery, slightly above ground
+                    scene.add(globalGalleryCenterLight);
+                }
+            } else {
+                // Other scenes/textures: use directional light
+                // Remove gallery center light if it exists
+                if (globalGalleryCenterLight && scene) {
+                    scene.remove(globalGalleryCenterLight);
+                    globalGalleryCenterLight = null;
+                }
+                if (!globalDirectionalLight && scene) {
+                    globalDirectionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+                    scene.add(globalDirectionalLight);
+                }
+                // Position light based on scene mode
+                if (globalDirectionalLight) {
+                    if (sceneMode === 'gallery') {
+                        // Gallery (non-W95): light from directly above
+                        globalDirectionalLight.position.set(0, 20, 0);
+                    } else {
+                        // Other scenes: diagonal light
+                        globalDirectionalLight.position.set(10, 10, 10);
+                    }
+                }
+            }
+        }
+
+
 
         camera.position.set(playerPosition.x, 1.2, playerPosition.z);
         camera.rotation.y = playerRotation;
