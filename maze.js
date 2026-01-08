@@ -82,7 +82,9 @@ let controls = {
     up: false,
     down: false,
     lookUp: false,
-    lookDown: false
+    lookDown: false,
+    rotateLeft: false,
+    rotateRight: false
 };
 
 // Auto mode: pathfinding-based navigation
@@ -1751,41 +1753,53 @@ function onKeyDown(event) {
     }
 
     switch (event.key) {
+        // Arrow keys for movement
         case 'ArrowUp':
-        case 'w':
-        case 'W':
             controls.forward = true;
             break;
         case 'ArrowDown':
-        case 's':
-        case 'S':
             controls.backward = true;
             break;
         case 'ArrowLeft':
-        case 'a':
-        case 'A':
             controls.left = true;
             break;
         case 'ArrowRight':
+            controls.right = true;
+            break;
+        // WASD for looking
+        case 'w':
+        case 'W':
+            controls.lookUp = true;
+            break;
+        case 's':
+        case 'S':
+            controls.lookDown = true;
+            break;
+        case 'a':
+        case 'A':
+            controls.rotateLeft = true;
+            break;
         case 'd':
         case 'D':
-            controls.right = true;
+            controls.rotateRight = true;
             break;
         case 'z':
         case 'Z':
             // Toggle auto mode: pathfinding-based navigation
-            autoMode = true;
-            isTurning = false;
-            targetCell = null;
-            navigationPath = [];
-            currentPathIndex = 0;
-            visitedCells.clear();
-            isViewingPainting = false;
-            viewingPaintingTimer = 0;
-            viewingPhase = 0;
-            paintingLookDirection = null;
-            originalDirection = null;
-            currentPitch = 0;
+            autoMode = !autoMode;
+            if (autoMode) {
+                isTurning = false;
+                targetCell = null;
+                navigationPath = [];
+                currentPathIndex = 0;
+                visitedCells.clear();
+                isViewingPainting = false;
+                viewingPaintingTimer = 0;
+                viewingPhase = 0;
+                paintingLookDirection = null;
+                originalDirection = null;
+                currentPitch = 0;
+            }
             break;
         case 't':
         case 'T':
@@ -1822,40 +1836,40 @@ function onKeyDown(event) {
             // Fly down (for testing)
             controls.down = true;
             break;
-        case 'i':
-        case 'I':
-            // Look up
-            controls.lookUp = true;
-            break;
-        case 'k':
-        case 'K':
-            // Look down
-            controls.lookDown = true;
-            break;
     }
 }
 
 function onKeyUp(event) {
     switch (event.key) {
+        // Arrow keys for movement
         case 'ArrowUp':
-        case 'w':
-        case 'W':
             controls.forward = false;
             break;
         case 'ArrowDown':
-        case 's':
-        case 'S':
             controls.backward = false;
             break;
         case 'ArrowLeft':
-        case 'a':
-        case 'A':
             controls.left = false;
             break;
         case 'ArrowRight':
+            controls.right = false;
+            break;
+        // WASD for looking
+        case 'w':
+        case 'W':
+            controls.lookUp = false;
+            break;
+        case 's':
+        case 'S':
+            controls.lookDown = false;
+            break;
+        case 'a':
+        case 'A':
+            controls.rotateLeft = false;
+            break;
         case 'd':
         case 'D':
-            controls.right = false;
+            controls.rotateRight = false;
             break;
         case 'o':
         case 'O':
@@ -1866,16 +1880,6 @@ function onKeyUp(event) {
         case 'L':
             // Stop flying down
             controls.down = false;
-            break;
-        case 'i':
-        case 'I':
-            // Stop looking up
-            controls.lookUp = false;
-            break;
-        case 'k':
-        case 'K':
-            // Stop looking down
-            controls.lookDown = false;
             break;
     }
 }
@@ -2834,12 +2838,22 @@ function updateMovement() {
     }
 
     // Manual controls (only when not in auto mode)
-    // Rotation
-    if (controls.left) {
+    // Rotation (A/D keys)
+    if (controls.rotateLeft) {
         playerRotation += ROTATION_SPEED;
     }
-    if (controls.right) {
+    if (controls.rotateRight) {
         playerRotation -= ROTATION_SPEED;
+    }
+
+    // Look up/down (W/S keys)
+    if (controls.lookUp) {
+        currentPitch += PITCH_SPEED;
+        if (currentPitch > Math.PI / 2 - 0.1) currentPitch = Math.PI / 2 - 0.1; // Clamp
+    }
+    if (controls.lookDown) {
+        currentPitch -= PITCH_SPEED;
+        if (currentPitch < -Math.PI / 2 + 0.1) currentPitch = -Math.PI / 2 + 0.1; // Clamp
     }
 
     // Vertical movement (O/L keys for testing/flying)
@@ -2853,10 +2867,11 @@ function updateMovement() {
         playerPosition.y -= currentMoveSpeed;
     }
 
-    // Movement
+    // Movement (Arrow keys)
     let moveX = 0;
     let moveZ = 0;
 
+    // Forward/backward (Arrow Up/Down)
     if (controls.forward) {
         moveX -= Math.sin(playerRotation) * currentMoveSpeed;
         moveZ -= Math.cos(playerRotation) * currentMoveSpeed;
@@ -2864,6 +2879,15 @@ function updateMovement() {
     if (controls.backward) {
         moveX += Math.sin(playerRotation) * currentMoveSpeed;
         moveZ += Math.cos(playerRotation) * currentMoveSpeed;
+    }
+    // Strafe left/right (Arrow Left/Right)
+    if (controls.left) {
+        moveX -= Math.sin(playerRotation + Math.PI / 2) * currentMoveSpeed;
+        moveZ -= Math.cos(playerRotation + Math.PI / 2) * currentMoveSpeed;
+    }
+    if (controls.right) {
+        moveX -= Math.sin(playerRotation - Math.PI / 2) * currentMoveSpeed;
+        moveZ -= Math.cos(playerRotation - Math.PI / 2) * currentMoveSpeed;
     }
 
     // Update position with collision detection
@@ -3019,21 +3043,11 @@ function updateMovement() {
         }
     }
 
-    // Look up/down (I/K keys) - manual mode, inverted
-    if (controls.lookUp) {
-        currentPitch += PITCH_SPEED;
-        currentPitch = Math.min(currentPitch, Math.PI / 2); // Don't look behind
-    }
-    if (controls.lookDown) {
-        currentPitch -= PITCH_SPEED;
-        currentPitch = Math.max(currentPitch, -Math.PI / 2); // Don't look behind
-    }
-
     // Update camera (use playerPosition.y for vertical movement)
     camera.position.set(playerPosition.x, playerPosition.y, playerPosition.z);
     camera.rotation.order = 'YXZ';
     camera.rotation.y = playerRotation;
-    camera.rotation.x = currentPitch; // Apply pitch from I/K keys
+    camera.rotation.x = currentPitch; // Apply pitch from W/S keys
 }
 
 // Draw minimap
@@ -4523,6 +4537,16 @@ function updateStatsDisplay() {
                     <input type="checkbox" id="random-scene-change-checkbox" ${randomSceneChange ? 'checked' : ''}>
                     Random scene change
                 </label>
+            </div>
+            <hr style="border-color: #666; margin: 10px 0;">
+            <div style="font-weight: bold; margin-bottom: 5px;">=== Controls ===</div>
+            <div style="font-size: 11px; line-height: 1.6;">
+                <div><b>↑↓←→</b>: Move/Strafe</div>
+                <div><b>W/S</b>: Look Up/Down</div>
+                <div><b>A/D</b>: Turn Left/Right</div>
+                <div><b>T</b>: Toggle Menu</div>
+                <div><b>M</b>: Toggle Minimap</div>
+                <div><b>Z</b>: Auto Mode</div>
             </div>
             <hr style="border-color: #666; margin: 10px 0;">
             <div style="font-weight: bold; margin-bottom: 5px;">=== Images ===</div>
