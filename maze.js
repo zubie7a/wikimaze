@@ -315,13 +315,15 @@ async function createMaze(wallData, customStartCell = null) {
                     texture.repeat.set(SIZE * 2, SIZE * 2); // Tile the carpet
                 }
             );
-            floorMaterial = new THREE.MeshLambertMaterial({ map: floorTexture });
+            // Use Standard material for better lighting (per-pixel) to avoid artifacts on large floors
+            floorMaterial = new THREE.MeshStandardMaterial({ map: floorTexture, roughness: 0.8 });
         } else {
             floorMaterial = new THREE.MeshLambertMaterial({ color: 0x8B4513 }); // Brown (W95)
         }
         const floor = new THREE.Mesh(floorGeometry, floorMaterial);
         floor.rotation.x = -Math.PI / 2;
         floor.position.y = -0.5;
+        floor.receiveShadow = true;
         group.add(floor);
 
         // Create ceiling - texture/color depends on texture style
@@ -337,8 +339,10 @@ async function createMaze(wallData, customStartCell = null) {
                 color: 0x505050 // Grayish
             });
         } else if (textureStyle === 'backrooms') {
-            ceilingMaterial = new THREE.MeshLambertMaterial({
-                color: 0xF5F5DC // Fluorescent off-white/beige
+            // Use Standard material for better lighting (per-pixel)
+            ceilingMaterial = new THREE.MeshStandardMaterial({
+                color: 0xF5F5DC, // Fluorescent off-white/beige
+                roughness: 0.8
             });
         } else {
             // W95 style - use ceiling texture
@@ -358,6 +362,7 @@ async function createMaze(wallData, customStartCell = null) {
         const ceiling = new THREE.Mesh(ceilingGeometry, ceilingMaterial);
         ceiling.rotation.x = Math.PI / 2;
         ceiling.position.y = WALL_HEIGHT - 0.5;
+        ceiling.receiveShadow = true;
         group.add(ceiling);
     }
 
@@ -553,7 +558,7 @@ async function createMaze(wallData, customStartCell = null) {
             if (horizontalWalls[y] && horizontalWalls[y][x]) {
                 const wallGeometry = new THREE.BoxGeometry(
                     CELL_SIZE,
-                    WALL_HEIGHT,
+                    WALL_HEIGHT + 0.05, // Slight overlap to prevent light leaks
                     WALL_THICKNESS
                 );
 
@@ -563,6 +568,8 @@ async function createMaze(wallData, customStartCell = null) {
                     WALL_HEIGHT / 2 - 0.5,
                     (y - SIZE / 2) * CELL_SIZE
                 );
+                wall.castShadow = true;
+                wall.receiveShadow = true;
                 group.add(wall);
 
                 // Store reference if this wall should get Wikipedia texture
@@ -580,7 +587,7 @@ async function createMaze(wallData, customStartCell = null) {
             if (verticalWalls[y] && verticalWalls[y][x]) {
                 const wallGeometry = new THREE.BoxGeometry(
                     WALL_THICKNESS,
-                    WALL_HEIGHT,
+                    WALL_HEIGHT + 0.05, // Slight overlap to prevent light leaks
                     CELL_SIZE
                 );
 
@@ -590,6 +597,8 @@ async function createMaze(wallData, customStartCell = null) {
                     WALL_HEIGHT / 2 - 0.5,
                     (y - SIZE / 2) * CELL_SIZE + CELL_SIZE / 2
                 );
+                wall.castShadow = true;
+                wall.receiveShadow = true;
                 group.add(wall);
 
                 // Store reference if this wall should get Wikipedia texture
@@ -1475,10 +1484,12 @@ async function regenerateScene() {
                 scene.remove(globalGalleryCenterLight);
                 globalGalleryCenterLight = null;
             }
-            // For cathedral backrooms, add point light that follows player
-            if (sceneMode === 'cathedral' || sceneMode === 'complex') {
+            // For cathedral/complex/gallery backrooms, add point light that follows player
+            if (sceneMode === 'cathedral' || sceneMode === 'complex' || sceneMode === 'gallery') {
                 if (!globalPlayerLight && scene) {
                     globalPlayerLight = new THREE.PointLight(0xFFF5E0, 3.0, 5, 1.5);
+                    globalPlayerLight.castShadow = true;
+                    globalPlayerLight.shadow.bias = -0.0001;
                     scene.add(globalPlayerLight);
                 }
             } else {
@@ -1606,10 +1617,12 @@ function init() {
         // No directional light for backrooms (ceiling lamps are the light source)
         globalDirectionalLight = null;
         globalGalleryCenterLight = null;
-        // For cathedral backrooms, add point light that follows player
-        if (sceneMode === 'cathedral' || sceneMode === 'complex') {
+        // For cathedral/complex/gallery backrooms, add point light that follows player
+        if (sceneMode === 'cathedral' || sceneMode === 'complex' || sceneMode === 'gallery') {
             if (!globalPlayerLight) {
                 globalPlayerLight = new THREE.PointLight(0xFFF5E0, 3.0, 15, 1.5);
+                globalPlayerLight.castShadow = true;
+                globalPlayerLight.shadow.bias = -0.0001;
                 scene.add(globalPlayerLight);
             }
         } else {
@@ -1630,6 +1643,7 @@ function init() {
             globalDirectionalLight = null;
             globalGalleryCenterLight = new THREE.PointLight(0xffffff, 1.5, 30, 2);
             globalGalleryCenterLight.position.set(0, 3, 0); // Center of gallery, slightly above ground
+            globalGalleryCenterLight.castShadow = true;
             scene.add(globalGalleryCenterLight);
         } else {
             // Other scenes/textures: use directional light
