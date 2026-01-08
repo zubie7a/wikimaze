@@ -4176,13 +4176,74 @@ async function handleMazeDoorCrossing(exitDirection) {
     try {
         await fadeToBlack();
 
-        // Reset state for new maze generation (same as regenerateScene)
+        // If random scene change is enabled, randomly change scene
+        if (randomSceneChange) {
+            // Select random scene (including maze)
+            const availableScenes = ['gallery', 'alley', 'openspace', 'cathedral', 'pillars', 'complex', 'maze'];
+            const randomIndex = Math.floor(Math.random() * availableScenes.length);
+            const newSceneMode = availableScenes[randomIndex];
+
+            // Set scene mode immediately
+            sceneMode = newSceneMode;
+
+            // Update dropdown
+            const sceneModeSelect = statsDiv?.querySelector('#scene-mode-select');
+            if (sceneModeSelect && sceneModeSelectHandler) {
+                sceneModeSelect.removeEventListener('change', sceneModeSelectHandler);
+                sceneModeSelect.value = sceneMode;
+                setTimeout(() => {
+                    sceneModeSelect.addEventListener('change', sceneModeSelectHandler);
+                }, 0);
+            }
+
+            // Regenerate with new scene
+            await regenerateScene();
+
+            // Position player based on new scene type
+            if (newSceneMode === 'maze') {
+                // Spawn at random maze door (handled by regenerateScene)
+            } else if (newSceneMode === 'openspace' || newSceneMode === 'pillars' || newSceneMode === 'complex') {
+                // Spawn at center
+                playerPosition.x = 0;
+                playerPosition.z = 0;
+                playerRotation = 0;
+            } else if (newSceneMode === 'gallery') {
+                const doors = window.galleryDoors;
+                if (doors) {
+                    const spawnDoor = Math.random() < 0.5 ? doors.door1 : doors.door2;
+                    const doorOffset = 1.0;
+                    const spawnDist = doors.doorRadius - doorOffset;
+                    playerPosition.x = Math.cos(spawnDoor.angle) * spawnDist;
+                    playerPosition.z = Math.sin(spawnDoor.angle) * spawnDist;
+                    playerRotation = Math.atan2(playerPosition.x, playerPosition.z);
+                }
+            } else if (newSceneMode === 'alley') {
+                const SIZE = getEffectiveSize();
+                const alleyZ = Math.floor(SIZE / 2);
+                const halfSize = (SIZE * CELL_SIZE) / 2;
+                const doorOffset = 1.5;
+                playerPosition.x = halfSize - doorOffset;
+                playerPosition.z = (alleyZ - SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
+                playerRotation = Math.PI / 2;
+            } else if (newSceneMode === 'cathedral') {
+                playerPosition.x = 0;
+                playerPosition.z = 0;
+                playerRotation = 0;
+            }
+
+            camera.position.set(playerPosition.x, playerPosition.y || 1.2, playerPosition.z);
+            camera.rotation.y = playerRotation;
+
+            await fadeFromBlack();
+            return;
+        }
+
+        // Non-random: regenerate maze and spawn at different door
+        // Reset state for new maze generation
         randomImageResults = [];
         randomImageIndex = 0;
         cancelLoading = false;
-        wikipediaWalls.clear(); // Clear old wall markers
-
-        // Increment generation to invalidate stale loading operations
+        wikipediaWalls.clear();
         mazeGeneration++;
 
         // Clear existing maze
@@ -4201,7 +4262,7 @@ async function handleMazeDoorCrossing(exitDirection) {
             currentMazeGroup = null;
         }
 
-        // Generate new maze (this sets window.mazeDoors)
+        // Generate new maze
         const SIZE = getEffectiveSize();
         mazeData = generateMaze(SIZE);
 
@@ -4216,26 +4277,23 @@ async function handleMazeDoorCrossing(exitDirection) {
             if (randomKey === 'north') {
                 playerPosition.x = (doorDef.x - SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
                 playerPosition.z = (-SIZE / 2) * CELL_SIZE + doorOffset;
-                playerRotation = Math.PI; // Face south
+                playerRotation = Math.PI;
             } else if (randomKey === 'south') {
                 playerPosition.x = (doorDef.x - SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
                 playerPosition.z = (SIZE / 2) * CELL_SIZE - doorOffset;
-                playerRotation = 0; // Face north
+                playerRotation = 0;
             } else if (randomKey === 'west') {
                 playerPosition.x = (-SIZE / 2) * CELL_SIZE + doorOffset;
                 playerPosition.z = (doorDef.y - SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
                 playerRotation = -Math.PI / 2;
-            } else { // east
+            } else {
                 playerPosition.x = (SIZE / 2) * CELL_SIZE - doorOffset;
                 playerPosition.z = (doorDef.y - SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
                 playerRotation = Math.PI / 2;
             }
         }
 
-        // Calculate startCell AFTER setting spawn position
         const startCell = worldToGrid(playerPosition.x, playerPosition.z);
-
-        // Create maze with correct startCell
         currentMazeGroup = await createMaze(mazeData, startCell);
         scene.add(currentMazeGroup);
 
