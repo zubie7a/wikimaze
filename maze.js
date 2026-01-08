@@ -292,9 +292,12 @@ async function createMaze(wallData, customStartCell = null) {
     // Skip default floor/ceiling for gallery and cathedral modes (they create their own)
     if (sceneMode !== 'gallery' && sceneMode !== 'cathedral') {
         // Create floor - color/texture depends on texture style
+        // Add segments (SIZE, SIZE) to ensure vertex lighting works correctly with point lights on large floors
         const floorGeometry = new THREE.PlaneGeometry(
             SIZE * CELL_SIZE,
-            SIZE * CELL_SIZE
+            SIZE * CELL_SIZE,
+            SIZE,
+            SIZE
         );
         let floorMaterial;
         if (textureStyle === 'entirewall') {
@@ -322,7 +325,9 @@ async function createMaze(wallData, customStartCell = null) {
         // Create ceiling - texture/color depends on texture style
         const ceilingGeometry = new THREE.PlaneGeometry(
             SIZE * CELL_SIZE,
-            SIZE * CELL_SIZE
+            SIZE * CELL_SIZE,
+            SIZE,
+            SIZE
         );
         let ceilingMaterial;
         if (textureStyle === 'entirewall') {
