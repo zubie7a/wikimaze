@@ -316,7 +316,12 @@ async function createMaze(wallData, customStartCell = null) {
                 }
             );
             // Use Standard material for better lighting (per-pixel) to avoid artifacts on large floors
-            floorMaterial = new THREE.MeshStandardMaterial({ map: floorTexture, roughness: 0.8 });
+            // EXCEPT for Pillars scene which has too many lights - use Lambert for performance
+            if (sceneMode === 'pillars') {
+                floorMaterial = new THREE.MeshLambertMaterial({ map: floorTexture });
+            } else {
+                floorMaterial = new THREE.MeshStandardMaterial({ map: floorTexture, roughness: 0.8 });
+            }
         } else {
             floorMaterial = new THREE.MeshLambertMaterial({ color: 0x8B4513 }); // Brown (W95)
         }
@@ -340,10 +345,15 @@ async function createMaze(wallData, customStartCell = null) {
             });
         } else if (textureStyle === 'backrooms') {
             // Use Standard material for better lighting (per-pixel)
-            ceilingMaterial = new THREE.MeshStandardMaterial({
-                color: 0xF5F5DC, // Fluorescent off-white/beige
-                roughness: 0.8
-            });
+            // EXCEPT for Pillars scene - use Lambert for performance
+            if (sceneMode === 'pillars') {
+                ceilingMaterial = new THREE.MeshLambertMaterial({ color: 0xF5F5DC });
+            } else {
+                ceilingMaterial = new THREE.MeshStandardMaterial({
+                    color: 0xF5F5DC, // Fluorescent off-white/beige
+                    roughness: 0.8
+                });
+            }
         } else {
             // W95 style - use ceiling texture
             const ceilingTextureLoader = new THREE.TextureLoader();
@@ -425,7 +435,7 @@ async function createMaze(wallData, customStartCell = null) {
 
                 // Add a point light below each lamp (only if not off)
                 if (!isOff) {
-                    const lightIntensity = 0.3;
+                    const lightIntensity = (sceneMode === 'complex' || sceneMode === 'pillars') ? 0.3 : 0.8;
                     const lampLight = new THREE.PointLight(0xFFF5E0, lightIntensity, CELL_SIZE * 2.5, 1.5);
                     lampLight.position.set(x, lampY - 0.1, z);
                     group.add(lampLight);
