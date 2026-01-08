@@ -425,7 +425,8 @@ async function createMaze(wallData, customStartCell = null) {
 
                 // Add a point light below each lamp (only if not off)
                 if (!isOff) {
-                    const lampLight = new THREE.PointLight(0xFFF5E0, 0.8, CELL_SIZE * 2.5, 1.5);
+                    const lightIntensity = 0.3;
+                    const lampLight = new THREE.PointLight(0xFFF5E0, lightIntensity, CELL_SIZE * 2.5, 1.5);
                     lampLight.position.set(x, lampY - 0.1, z);
                     group.add(lampLight);
 
@@ -434,7 +435,7 @@ async function createMaze(wallData, customStartCell = null) {
                         flickeringLights.push({
                             light: lampLight,
                             lamp: lamp,
-                            baseIntensity: 0.8,
+                            baseIntensity: lightIntensity,
                             flickerSpeed: 0.5 + Math.random() * 2, // Random flicker speed
                             flickerPhase: Math.random() * Math.PI * 2 // Random starting phase
                         });
@@ -1486,12 +1487,18 @@ async function regenerateScene() {
             }
             // For cathedral/complex/gallery backrooms, add point light that follows player
             if (sceneMode === 'cathedral' || sceneMode === 'complex' || sceneMode === 'gallery') {
-                if (!globalPlayerLight && scene) {
-                    const intensity = sceneMode === 'gallery' ? 0.5 : 3.0;
+                const intensity = 0.5;
+                if (!globalPlayerLight) {
                     globalPlayerLight = new THREE.PointLight(0xFFF5E0, intensity, 15, 1.5);
                     globalPlayerLight.castShadow = true;
                     globalPlayerLight.shadow.bias = -0.0001;
                     scene.add(globalPlayerLight);
+                } else {
+                    // Update existing light
+                    globalPlayerLight.intensity = intensity;
+                    if (!scene.getObjectById(globalPlayerLight.id)) {
+                        scene.add(globalPlayerLight);
+                    }
                 }
             } else {
                 // Remove player light if switching away from cathedral/complex or backrooms
@@ -1620,12 +1627,19 @@ function init() {
         globalGalleryCenterLight = null;
         // For cathedral/complex/gallery backrooms, add point light that follows player
         if (sceneMode === 'cathedral' || sceneMode === 'complex' || sceneMode === 'gallery') {
+            const intensity = 0.5;
             if (!globalPlayerLight) {
-                const intensity = sceneMode === 'gallery' ? 0.5 : 3.0;
                 globalPlayerLight = new THREE.PointLight(0xFFF5E0, intensity, 15, 1.5);
                 globalPlayerLight.castShadow = true;
                 globalPlayerLight.shadow.bias = -0.0001;
                 scene.add(globalPlayerLight);
+            } else {
+                // Ensure intensity is correct even if light persisted
+                globalPlayerLight.intensity = intensity;
+                // Ensure it's in the scene
+                if (!scene.getObjectById(globalPlayerLight.id)) {
+                    scene.add(globalPlayerLight);
+                }
             }
         } else {
             // Remove player light if switching away from cathedral/complex(during regen)
