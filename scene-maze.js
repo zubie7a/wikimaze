@@ -93,25 +93,108 @@ class MazeScene extends SceneController {
             }
         }
 
+        // Create doors on boundary walls (one per side at random positions)
+        // NOTE: We do NOT remove the walls - the door is a visual overlay only
+        // Collision detection for door passage is handled in maze.js
+
+        // North door: horizontal wall at y=0, random x
+        const northDoorX = Math.floor(Math.random() * size);
+
+        // South door: horizontal wall at y=size, random x
+        const southDoorX = Math.floor(Math.random() * size);
+
+        // West door: vertical wall at x=0, random y
+        const westDoorY = Math.floor(Math.random() * size);
+
+        // East door: vertical wall at x=size, random y
+        const eastDoorY = Math.floor(Math.random() * size);
+
+        // Store door positions for collision detection and visual rendering
+        window.mazeDoors = {
+            north: { x: northDoorX, y: 0, direction: 'north' },
+            south: { x: southDoorX, y: size, direction: 'south' },
+            west: { x: 0, y: westDoorY, direction: 'west' },
+            east: { x: size, y: eastDoorY, direction: 'east' },
+            size: size,
+            doorWidth: CELL_SIZE * 0.6,
+            doorHeight: WALL_HEIGHT * 0.85
+        };
+
         return { horizontalWalls, verticalWalls };
     }
 
-    // Maze has no special content beyond walls
+    // Create visual door representations on boundary walls
     createContent(group, textureStyle, size) {
-        // Standard maze has no additional scene objects
+        const doors = window.mazeDoors;
+        if (!doors) return;
+
+        const doorWidth = doors.doorWidth;
+        const doorHeight = doors.doorHeight;
+        const doorY = doorHeight / 2 - 0.5;
+        const doorMaterial = new THREE.MeshBasicMaterial({
+            color: textureStyle === 'entirewall' ? 0xffffff : 0x000000,
+            side: THREE.DoubleSide
+        });
+
+        // North door (horizontal wall at y=0) - wall faces south, door should be inside
+        const northDoorGeom = new THREE.PlaneGeometry(doorWidth, doorHeight);
+        const northDoor = new THREE.Mesh(northDoorGeom, doorMaterial.clone());
+        const northX = (doors.north.x - size / 2) * CELL_SIZE + CELL_SIZE / 2;
+        const northZ = (-size / 2) * CELL_SIZE;
+        northDoor.position.set(northX, doorY, northZ + WALL_THICKNESS / 2 + 0.01);
+        northDoor.rotation.y = 0; // Face south (into maze)
+        group.add(northDoor);
+
+        // South door (horizontal wall at y=size) - wall faces north, door should be inside
+        const southDoorGeom = new THREE.PlaneGeometry(doorWidth, doorHeight);
+        const southDoor = new THREE.Mesh(southDoorGeom, doorMaterial.clone());
+        const southX = (doors.south.x - size / 2) * CELL_SIZE + CELL_SIZE / 2;
+        const southZ = (size / 2) * CELL_SIZE;
+        southDoor.position.set(southX, doorY, southZ - WALL_THICKNESS / 2 - 0.01);
+        southDoor.rotation.y = Math.PI; // Face north (into maze)
+        group.add(southDoor);
+
+        // West door (vertical wall at x=0) - wall faces east, door should be inside
+        const westDoorGeom = new THREE.PlaneGeometry(doorWidth, doorHeight);
+        const westDoor = new THREE.Mesh(westDoorGeom, doorMaterial.clone());
+        const westX = (-size / 2) * CELL_SIZE;
+        const westZ = (doors.west.y - size / 2) * CELL_SIZE + CELL_SIZE / 2;
+        westDoor.position.set(westX + WALL_THICKNESS / 2 + 0.01, doorY, westZ);
+        westDoor.rotation.y = Math.PI / 2; // Face east (into maze)
+        group.add(westDoor);
+
+        // East door (vertical wall at x=size) - wall faces west, door should be inside
+        const eastDoorGeom = new THREE.PlaneGeometry(doorWidth, doorHeight);
+        const eastDoor = new THREE.Mesh(eastDoorGeom, doorMaterial.clone());
+        const eastX = (size / 2) * CELL_SIZE;
+        const eastZ = (doors.east.y - size / 2) * CELL_SIZE + CELL_SIZE / 2;
+        eastDoor.position.set(eastX - WALL_THICKNESS / 2 - 0.01, doorY, eastZ);
+        eastDoor.rotation.y = -Math.PI / 2; // Face west (into maze)
+        group.add(eastDoor);
     }
 
-    // Blue sky background, no fog
+    // Black void background, no fog
     getSceneSetup() {
         return {
-            background: 0x87CEEB, // Sky blue
+            background: 0x000000, // Black
             fog: null,
             ambientIntensity: 0.6
         };
     }
 
-    // Start in corner of maze
+    // Start near the west door
     getStartPosition(size) {
+        const doors = window.mazeDoors;
+        if (doors) {
+            // Spawn just inside the west door, facing east
+            const westDoorZ = (doors.west.y - size / 2) * CELL_SIZE + CELL_SIZE / 2;
+            return {
+                x: (-size / 2) * CELL_SIZE + CELL_SIZE / 2,
+                z: westDoorZ,
+                rotation: -Math.PI / 2 // Face east (into maze)
+            };
+        }
+        // Fallback to corner
         return {
             x: (-size / 2) * CELL_SIZE + CELL_SIZE / 2,
             z: (-size / 2) * CELL_SIZE + CELL_SIZE / 2,
