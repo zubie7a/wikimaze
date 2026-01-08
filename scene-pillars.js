@@ -24,28 +24,104 @@ class PillarsScene extends SceneController {
 
         // Add pillars in a grid pattern in the middle area
         // Pillars are wall segments surrounding a single cell
+        // Pillars are wall segments surrounding a single cell
         this.pillarPositions = [];
-        const margin = 4; // Start at 4 to center pillars (4, 7, 10) in 15x15 grid
-        const spacing = 3; // Space between pillars
 
-        for (let y = margin; y < size - margin; y += spacing) {
-            for (let x = margin; x < size - margin; x += spacing) {
-                // Skip center to leave spawn area clear
-                const center = Math.floor(size / 2);
-                if (Math.abs(x - center) <= 1 && Math.abs(y - center) <= 1) continue;
+        // 50/50 chance for Random vs Classic Grid
+        const useRandomLayout = Math.random() < 0.5;
 
-                // Add walls around this cell to form a pillar
-                // North wall of cell (horizontalWalls[y][x])
-                horizontalWalls[y][x] = true;
-                // South wall of cell (horizontalWalls[y+1][x])
-                horizontalWalls[y + 1][x] = true;
-                // West wall of cell (verticalWalls[y][x])
-                verticalWalls[y][x] = true;
-                // East wall of cell (verticalWalls[y][x+1])
-                verticalWalls[y][x + 1] = true;
+        // Helper to check if a position is valid for a pillar (random mode)
+        const isValidPillarPos = (px, py, existingPillars, size) => {
+            const center = Math.floor(size / 2);
 
-                this.pillarPositions.push({ x, y });
+            // Constraint 0: Stay away from walls (margin 2)
+            if (px < 2 || px >= size - 2 || py < 2 || py >= size - 2) return false;
+
+            // Constraint 1: Clear spawn area (3x3 center)
+            if (Math.abs(px - center) <= 1 && Math.abs(py - center) <= 1) return false;
+
+            // Constraint 2: Separation from other pillars (no direct adjacency or diagonal adjacency)
+            // Ideally keep 1 empty cell between pillars
+            for (const p of existingPillars) {
+                const dx = Math.abs(px - p.x);
+                const dy = Math.abs(py - p.y);
+                // If touching or diagonal touching (dx <= 1 && dy <= 1), invalid
+                // Or even stricter: Manhattan distance < 3? (allows diagonal-adjacent?)
+                // User said "never together with another pillar" -> implies not adjacent.
+                // Let's enforce distance >= 2 in both coords or Manhattan distance >= 3
+                if (dx <= 1 && dy <= 1) return false;
             }
+            return true;
+        };
+
+        if (useRandomLayout) {
+            console.log('Generating Random Pillars Layout');
+            const targetPillars = 16;
+            let attempts = 0;
+            const maxAttempts = 1000;
+
+            // Try to place pillars
+            // Reset if stuck? Or just try to fill up to 9
+            // Brute force retry the whole set if we fail to get 9?
+
+            let success = false;
+            while (!success && attempts < 100) { // 100 retries of full layout
+                const tempPillars = [];
+                let placeAttempts = 0;
+                // Try to place 9 pillars
+                while (tempPillars.length < targetPillars && placeAttempts < 200) {
+                    const rx = Math.floor(Math.random() * size);
+                    const ry = Math.floor(Math.random() * size);
+                    if (isValidPillarPos(rx, ry, tempPillars, size)) {
+                        tempPillars.push({ x: rx, y: ry });
+                    }
+                    placeAttempts++;
+                }
+
+                if (tempPillars.length === targetPillars) {
+                    this.pillarPositions = tempPillars;
+                    success = true;
+                }
+                attempts++;
+            }
+
+            if (!success) {
+                console.warn("Failed to generate random pillars, falling back to grid");
+                // Fallback to grid logic below if random fails (rare due to density)
+                // But we need to clear pillarPositions if failed
+                this.pillarPositions = [];
+            }
+        }
+
+        // If random failed or not selected, use Classic Grid
+        if (this.pillarPositions.length === 0) {
+            console.log('Generating Classic Pillars Layout');
+            const margin = 4; // Start at 4 to center pillars (4, 7, 10) in 15x15 grid
+            const spacing = 3; // Space between pillars
+
+            for (let y = margin; y < size - margin; y += spacing) {
+                for (let x = margin; x < size - margin; x += spacing) {
+                    // Skip center to leave spawn area clear
+                    const center = Math.floor(size / 2);
+                    if (Math.abs(x - center) <= 1 && Math.abs(y - center) <= 1) continue;
+
+                    this.pillarPositions.push({ x, y });
+                }
+            }
+        }
+
+        // Create the walls for the chosen pillar positions
+        for (const pos of this.pillarPositions) {
+            const { x, y } = pos;
+            // Add walls around this cell to form a pillar
+            // North wall of cell
+            horizontalWalls[y][x] = true;
+            // South wall of cell
+            horizontalWalls[y + 1][x] = true;
+            // West wall of cell
+            verticalWalls[y][x] = true;
+            // East wall of cell
+            verticalWalls[y][x + 1] = true;
         }
 
         return { horizontalWalls, verticalWalls };
