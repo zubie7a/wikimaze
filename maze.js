@@ -1253,6 +1253,14 @@ async function regenerateScene() {
     try {
         console.log('Regenerating scene with mode:', sceneMode);
 
+        // Set a fresh random openspaceSize for openspace mode
+        // This is safe because spawn calculations now use window.openspaceDoors.halfSize
+        // which is set DURING createContent, matching the actual room geometry
+        if (sceneMode === 'openspace') {
+            openspaceSize = getRandomOpenspaceSize();
+            console.log('Selected openspace size:', openspaceSize);
+        }
+
         // Set flag immediately to prevent door detection during regeneration
         window.justRegenerated = true;
 
@@ -1337,7 +1345,8 @@ async function regenerateScene() {
         if (randomSceneChange) {
             if (sceneMode === 'openspace') {
                 // Spawn at a random door in openspace
-                const newHalfSize = (openspaceSize * CELL_SIZE) / 2;
+                // Use SIZE from getEffectiveSize() which has the correct room size
+                const newHalfSize = (SIZE * CELL_SIZE) / 2;
                 const doorOffset = 1.5; // Increased to prevent immediate door detection trigger
                 const doors = ['north', 'south', 'east', 'west'];
                 const randomDoor = doors[Math.floor(Math.random() * doors.length)];
@@ -3720,6 +3729,7 @@ async function fadeFromBlack() {
 // Handle crossing alley boundary - load fresh paintings
 async function handleAlleyCrossing() {
     if (sceneMode !== 'alley') return;
+    if (!collisionsEnabled) return; // Door crossings disabled when collisions are off
 
     // If random scene change is enabled, randomly change scene
     if (randomSceneChange) {
@@ -3745,11 +3755,13 @@ async function handleAlleyCrossing() {
         // Position player at appropriate door based on new scene type
         if (newSceneMode === 'openspace') {
             // Spawn at a door in openspace (default to west door)
-            const newHalfSize = (openspaceSize * CELL_SIZE) / 2;
-            const doorOffset = 1.5; // Increased to prevent immediate re-triggering
-            playerPosition.x = -newHalfSize + doorOffset;
-            playerPosition.z = 0;
-            playerRotation = -Math.PI / 2; // Face east (toward center)
+            // Use window.openspaceDoors which was set during createContent
+            const doors = window.openspaceDoors;
+            if (doors) {
+                playerPosition.x = -doors.halfSize + doors.doorOffset;
+                playerPosition.z = 0;
+                playerRotation = -Math.PI / 2; // Face east (toward center)
+            }
         } else if (newSceneMode === 'gallery') {
             // Spawn at a door in gallery
             const doors = window.galleryDoors;
@@ -3832,6 +3844,7 @@ async function handleAlleyCrossing() {
 // Handle crossing gallery door - regenerate gallery
 async function handleGalleryDoorCrossing(exitDoorWallIndex) {
     if (sceneMode !== 'gallery') return;
+    if (!collisionsEnabled) return; // Door crossings disabled when collisions are off
 
     // Prevent concurrent door crossings
     if (isTransitioningRoom) {
@@ -3870,12 +3883,13 @@ async function handleGalleryDoorCrossing(exitDoorWallIndex) {
             // Position player at appropriate door based on new scene type
             if (newSceneMode === 'openspace') {
                 // Spawn at opposite door in openspace
-                const newHalfSize = (openspaceSize * CELL_SIZE) / 2;
-                const doorOffset = 1.5; // Increased to prevent immediate re-triggering
-                // For simplicity, spawn at west door
-                playerPosition.x = -newHalfSize + doorOffset;
-                playerPosition.z = 0;
-                playerRotation = -Math.PI / 2; // Face east (toward center)
+                // Use window.openspaceDoors which was set during createContent
+                const doors = window.openspaceDoors;
+                if (doors) {
+                    playerPosition.x = -doors.halfSize + doors.doorOffset;
+                    playerPosition.z = 0;
+                    playerRotation = -Math.PI / 2; // Face east (toward center)
+                }
             } else if (newSceneMode === 'gallery') {
                 // Spawn at a door in gallery
                 const doors = window.galleryDoors;
@@ -3983,6 +3997,7 @@ async function handleGalleryDoorCrossing(exitDoorWallIndex) {
 
 async function handleOpenspaceDoorCrossing(exitDirection) {
     if (sceneMode !== 'openspace') return;
+    if (!collisionsEnabled) return; // Door crossings disabled when collisions are off
 
     // Prevent concurrent door crossings (function is called from animation loop without await)
     if (isTransitioningRoom) {
@@ -4020,38 +4035,40 @@ async function handleOpenspaceDoorCrossing(exitDirection) {
             // Position player at appropriate door based on new scene type
             if (newSceneMode === 'openspace') {
                 // Spawn at opposite door in openspace (if exited east, spawn at west, etc.)
-                const newHalfSize = (openspaceSize * CELL_SIZE) / 2;
-                const doorOffset = 1.5; // Increased to prevent immediate re-triggering
-                // Map exit direction to opposite door
-                let oppositeDirection;
-                switch (exitDirection) {
-                    case 'east': oppositeDirection = 'west'; break;
-                    case 'west': oppositeDirection = 'east'; break;
-                    case 'north': oppositeDirection = 'south'; break;
-                    case 'south': oppositeDirection = 'north'; break;
-                    default: oppositeDirection = 'west'; break;
-                }
-                switch (oppositeDirection) {
-                    case 'east':
-                        playerPosition.x = newHalfSize - doorOffset;
-                        playerPosition.z = 0;
-                        playerRotation = Math.PI / 2; // Face west (toward center)
-                        break;
-                    case 'west':
-                        playerPosition.x = -newHalfSize + doorOffset;
-                        playerPosition.z = 0;
-                        playerRotation = -Math.PI / 2; // Face east (toward center)
-                        break;
-                    case 'south':
-                        playerPosition.x = 0;
-                        playerPosition.z = newHalfSize - doorOffset;
-                        playerRotation = 0; // Face north (toward center)
-                        break;
-                    case 'north':
-                        playerPosition.x = 0;
-                        playerPosition.z = -newHalfSize + doorOffset;
-                        playerRotation = Math.PI; // Face south (toward center)
-                        break;
+                // Use window.openspaceDoors which was set during createContent
+                const doors = window.openspaceDoors;
+                if (doors) {
+                    // Map exit direction to opposite door
+                    let oppositeDirection;
+                    switch (exitDirection) {
+                        case 'east': oppositeDirection = 'west'; break;
+                        case 'west': oppositeDirection = 'east'; break;
+                        case 'north': oppositeDirection = 'south'; break;
+                        case 'south': oppositeDirection = 'north'; break;
+                        default: oppositeDirection = 'west'; break;
+                    }
+                    switch (oppositeDirection) {
+                        case 'east':
+                            playerPosition.x = doors.halfSize - doors.doorOffset;
+                            playerPosition.z = 0;
+                            playerRotation = Math.PI / 2; // Face west (toward center)
+                            break;
+                        case 'west':
+                            playerPosition.x = -doors.halfSize + doors.doorOffset;
+                            playerPosition.z = 0;
+                            playerRotation = -Math.PI / 2; // Face east (toward center)
+                            break;
+                        case 'south':
+                            playerPosition.x = 0;
+                            playerPosition.z = doors.halfSize - doors.doorOffset;
+                            playerRotation = 0; // Face north (toward center)
+                            break;
+                        case 'north':
+                            playerPosition.x = 0;
+                            playerPosition.z = -doors.halfSize + doors.doorOffset;
+                            playerRotation = Math.PI; // Face south (toward center)
+                            break;
+                    }
                 }
             } else if (newSceneMode === 'gallery') {
                 // Spawn at a door in gallery
@@ -4121,7 +4138,9 @@ async function handleOpenspaceDoorCrossing(exitDirection) {
         // Pick a new random room size
         const newSize = getRandomOpenspaceSize();
         console.log(`Crossed ${exitDirection} door, generating new ${newSize}x${newSize} room...`);
-        openspaceSize = newSize;
+        // Pick a new random room size
+        // Note: openspaceSize will be set by regenerateScene
+        // openspaceSize = newSize; // DELETED to prevent double randomization
 
         // Regenerate the entire scene with new size
         // Note: createMaze already starts loading paintings via its async IIFE
@@ -4129,7 +4148,8 @@ async function handleOpenspaceDoorCrossing(exitDirection) {
         await regenerateScene();
 
         // Position player at the opposite door of the new room
-        const newHalfSize = (newSize * CELL_SIZE) / 2;
+        const doors = window.openspaceDoors;
+        const newHalfSize = doors ? doors.halfSize : (newSize * CELL_SIZE) / 2;
         const doorOffset = 1.5; // Increased to prevent immediate re-triggering
 
         switch (exitDirection) {
@@ -4176,6 +4196,7 @@ async function handleOpenspaceDoorCrossing(exitDirection) {
 // Handle crossing pillars door - similar to openspace but fixed 15x15 size
 async function handlePillarsDoorCrossing(exitDirection) {
     if (sceneMode !== 'pillars') return;
+    if (!collisionsEnabled) return; // Door crossings disabled when collisions are off
 
     // Prevent concurrent door crossings
     if (isTransitioningRoom) {
@@ -4206,11 +4227,10 @@ async function handlePillarsDoorCrossing(exitDirection) {
             await regenerateScene();
 
             // Position player based on new scene
-            const size = 15; // Pillars uses fixed size
-            const halfSize = (size * CELL_SIZE) / 2;
-            const doorOffset = 1.5;
-
-            if (newSceneMode === 'pillars' || newSceneMode === 'openspace') {
+            if (newSceneMode === 'pillars') {
+                const size = 15; // Pillars uses fixed size
+                const halfSize = (size * CELL_SIZE) / 2;
+                const doorOffset = 1.5;
                 switch (exitDirection) {
                     case 'east':
                         playerPosition.x = -halfSize + doorOffset;
@@ -4232,6 +4252,33 @@ async function handlePillarsDoorCrossing(exitDirection) {
                         playerPosition.z = halfSize - doorOffset;
                         playerRotation = 0;
                         break;
+                }
+            } else if (newSceneMode === 'openspace') {
+                // Use window.openspaceDoors which was set during createContent
+                const doors = window.openspaceDoors;
+                if (doors) {
+                    switch (exitDirection) {
+                        case 'east':
+                            playerPosition.x = -doors.halfSize + doors.doorOffset;
+                            playerPosition.z = 0;
+                            playerRotation = -Math.PI / 2;
+                            break;
+                        case 'west':
+                            playerPosition.x = doors.halfSize - doors.doorOffset;
+                            playerPosition.z = 0;
+                            playerRotation = Math.PI / 2;
+                            break;
+                        case 'south':
+                            playerPosition.x = 0;
+                            playerPosition.z = -doors.halfSize + doors.doorOffset;
+                            playerRotation = Math.PI;
+                            break;
+                        case 'north':
+                            playerPosition.x = 0;
+                            playerPosition.z = doors.halfSize - doors.doorOffset;
+                            playerRotation = 0;
+                            break;
+                    }
                 }
             } else if (newSceneMode === 'gallery') {
                 const doors = window.galleryDoors;
@@ -4351,6 +4398,7 @@ async function handlePillarsDoorCrossing(exitDirection) {
 // Handle crossing cathedral door - regenerate cathedral or transition to random scene
 async function handleCathedralDoorCrossing(exitDoorIndex) {
     if (sceneMode !== 'cathedral') return;
+    if (!collisionsEnabled) return; // Door crossings disabled when collisions are off
 
     // Prevent concurrent door crossings
     if (isTransitioningRoom) {
@@ -4384,11 +4432,13 @@ async function handleCathedralDoorCrossing(exitDoorIndex) {
 
             // Position player at appropriate door based on new scene type
             if (newSceneMode === 'openspace') {
-                const newHalfSize = (openspaceSize * CELL_SIZE) / 2;
-                const doorOffset = 1.5;
-                playerPosition.x = -newHalfSize + doorOffset;
-                playerPosition.z = 0;
-                playerRotation = -Math.PI / 2;
+                // Use window.openspaceDoors which was set during createContent
+                const doors = window.openspaceDoors;
+                if (doors) {
+                    playerPosition.x = -doors.halfSize + doors.doorOffset;
+                    playerPosition.z = 0;
+                    playerRotation = -Math.PI / 2;
+                }
             } else if (newSceneMode === 'gallery') {
                 const doors = window.galleryDoors;
                 if (doors) {
@@ -4605,6 +4655,7 @@ function updateStatsDisplay() {
             controls.right = false;
             // Blur the dropdown to prevent further arrow key interference
             e.target.blur();
+            // Note: openspaceSize is set at the start of regenerateScene()
             regenerateScene();
         };
         sceneModeSelect.addEventListener('change', sceneModeSelectHandler);
@@ -4753,6 +4804,7 @@ function updateStatsDisplay() {
 // Handle crossing complex door
 async function handleComplexDoorCrossing(exitDirection) {
     if (sceneMode !== 'complex') return;
+    if (!collisionsEnabled) return; // Door crossings disabled when collisions are off
 
     if (isTransitioningRoom) return;
     isTransitioningRoom = true;
@@ -4805,8 +4857,8 @@ async function handleComplexDoorCrossing(exitDirection) {
                         playerRotation = 0;
                         break;
                 }
-            } else if (newSceneMode === 'pillars' || newSceneMode === 'openspace') {
-                const size = newSceneMode === 'pillars' ? 15 : openspaceSize;
+            } else if (newSceneMode === 'pillars') {
+                const size = 15;
                 const halfSize = (size * CELL_SIZE) / 2;
                 const doorOffset = 1.5;
                 switch (exitDirection) {
@@ -4830,6 +4882,33 @@ async function handleComplexDoorCrossing(exitDirection) {
                         playerPosition.z = halfSize - doorOffset;
                         playerRotation = 0;
                         break;
+                }
+            } else if (newSceneMode === 'openspace') {
+                // Use window.openspaceDoors which was set during createContent
+                const doors = window.openspaceDoors;
+                if (doors) {
+                    switch (exitDirection) {
+                        case 'east':
+                            playerPosition.x = -doors.halfSize + doors.doorOffset;
+                            playerPosition.z = 0;
+                            playerRotation = -Math.PI / 2;
+                            break;
+                        case 'west':
+                            playerPosition.x = doors.halfSize - doors.doorOffset;
+                            playerPosition.z = 0;
+                            playerRotation = Math.PI / 2;
+                            break;
+                        case 'south':
+                            playerPosition.x = 0;
+                            playerPosition.z = -doors.halfSize + doors.doorOffset;
+                            playerRotation = Math.PI;
+                            break;
+                        case 'north':
+                            playerPosition.x = 0;
+                            playerPosition.z = doors.halfSize - doors.doorOffset;
+                            playerRotation = 0;
+                            break;
+                    }
                 }
             } else if (newSceneMode === 'cathedral') {
                 const doors = window.cathedralDoors;

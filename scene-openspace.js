@@ -36,8 +36,11 @@ class OpenspaceScene extends SceneController {
             side: THREE.DoubleSide
         });
 
-        // Store door positions globally for crossing detection
+        // Store door positions and room size globally for crossing detection and spawn calculation
         window.openspaceDoors = {
+            size: size,
+            halfSize: halfSize,
+            doorOffset: 1.5, // How far inside the room to spawn
             north: { z: -halfSize, minX: -doorWidth / 2, maxX: doorWidth / 2 },
             south: { z: halfSize, minX: -doorWidth / 2, maxX: doorWidth / 2 },
             west: { x: -halfSize, minZ: -doorWidth / 2, maxZ: doorWidth / 2 },
