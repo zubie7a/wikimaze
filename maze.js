@@ -3820,10 +3820,10 @@ async function handleAlleyCrossing() {
     // Clear current paintings
     clearAllPaintings();
 
-    // Load new paintings
-    await reloadAllPaintings();
+    // Load new paintings in the background (don't wait)
+    reloadAllPaintings();
 
-    // Fade back in
+    // Fade back in immediately
     await fadeFromBlack();
 }
 
