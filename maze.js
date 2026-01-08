@@ -1374,115 +1374,50 @@ async function regenerateScene() {
         playerPosition.z = startPos.z;
         playerRotation = startPos.rotation;
 
-        // If random scene change is enabled, spawn at a door instead of default position
-        if (randomSceneChange) {
-            if (sceneMode === 'openspace') {
-                // Spawn at a random door in openspace
-                // Use SIZE from getEffectiveSize() which has the correct room size
-                const newHalfSize = (SIZE * CELL_SIZE) / 2;
-                const doorOffset = 1.5; // Increased to prevent immediate door detection trigger
-                const doors = ['north', 'south', 'east', 'west'];
-                const randomDoor = doors[Math.floor(Math.random() * doors.length)];
-                switch (randomDoor) {
-                    case 'east':
-                        playerPosition.x = newHalfSize - doorOffset;
-                        playerPosition.z = 0;
-                        playerRotation = Math.PI / 2; // Face west (toward center)
-                        break;
-                    case 'west':
-                        playerPosition.x = -newHalfSize + doorOffset;
-                        playerPosition.z = 0;
-                        playerRotation = -Math.PI / 2; // Face east (toward center)
-                        break;
-                    case 'south':
-                        playerPosition.x = 0;
-                        playerPosition.z = newHalfSize - doorOffset;
-                        playerRotation = 0; // Face north (toward center)
-                        break;
-                    case 'north':
-                        playerPosition.x = 0;
-                        playerPosition.z = -newHalfSize + doorOffset;
-                        playerRotation = Math.PI; // Face south (toward center)
-                        break;
-                }
-            } else if (sceneMode === 'gallery') {
-                // Spawn at a door in gallery
-                const doors = window.galleryDoors;
-                if (doors) {
-                    const spawnDoor = Math.random() < 0.5 ? doors.door1 : doors.door2;
-                    const doorOffset = 1.0;
-                    const spawnDist = doors.doorRadius - doorOffset;
-                    playerPosition.x = Math.cos(spawnDoor.angle) * spawnDist;
-                    playerPosition.z = Math.sin(spawnDoor.angle) * spawnDist;
-                    playerRotation = Math.atan2(playerPosition.x, playerPosition.z);
-                }
-            } else if (sceneMode === 'alley') {
-                // Spawn at the right side (east) of the alley, like a door entrance
-                const alleyZ = Math.floor(SIZE / 2);
-                const halfSize = (SIZE * CELL_SIZE) / 2;
-                const doorOffset = 1.5; // Increased to prevent immediate door detection trigger
-                playerPosition.x = halfSize - doorOffset; // Right side (east) of the alley
-                playerPosition.z = (alleyZ - SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
-                playerRotation = Math.PI / 2; // Face east (down the alley)
-            } else if (sceneMode === 'pillars') {
-                // Spawn at a random door in pillars
-                const pillarsSize = 15;
-                const newHalfSize = (pillarsSize * CELL_SIZE) / 2;
-                const doorOffset = 1.5;
-                const doors = ['north', 'south', 'east', 'west'];
-                const randomDoor = doors[Math.floor(Math.random() * doors.length)];
-                switch (randomDoor) {
-                    case 'east':
-                        playerPosition.x = newHalfSize - doorOffset;
-                        playerPosition.z = 0;
-                        playerRotation = Math.PI / 2; // Face west (toward center)
-                        break;
-                    case 'west':
-                        playerPosition.x = -newHalfSize + doorOffset;
-                        playerPosition.z = 0;
-                        playerRotation = -Math.PI / 2; // Face east (toward center)
-                        break;
-                    case 'south':
-                        playerPosition.x = 0;
-                        playerPosition.z = newHalfSize - doorOffset;
-                        playerRotation = 0; // Face north (toward center)
-                        break;
-                    case 'north':
-                        playerPosition.x = 0;
-                        playerPosition.z = -newHalfSize + doorOffset;
-                        playerRotation = Math.PI; // Face south (toward center)
-                        break;
-                }
-            } else if (sceneMode === 'complex') {
-                // Spawn at a random door in complex
-                const complexSize = getEffectiveSize();
-                const newHalfSize = (complexSize * CELL_SIZE) / 2;
-                const doorOffset = 1.5;
-                const doors = ['north', 'south', 'east', 'west'];
-                const randomDoor = doors[Math.floor(Math.random() * doors.length)];
-                switch (randomDoor) {
-                    case 'east':
-                        playerPosition.x = newHalfSize - doorOffset;
-                        playerPosition.z = 0;
-                        playerRotation = Math.PI / 2;
-                        break;
-                    case 'west':
-                        playerPosition.x = -newHalfSize + doorOffset;
-                        playerPosition.z = 0;
-                        playerRotation = -Math.PI / 2;
-                        break;
-                    case 'south':
-                        playerPosition.x = 0;
-                        playerPosition.z = newHalfSize - doorOffset;
-                        playerRotation = 0;
-                        break;
-                    case 'north':
-                        playerPosition.x = 0;
-                        playerPosition.z = -newHalfSize + doorOffset;
-                        playerRotation = Math.PI;
-                        break;
-                }
+        // ALWAYS spawn at a door for all scenes (not just random transitions)
+        if (sceneMode === 'openspace' || sceneMode === 'pillars' || sceneMode === 'complex') {
+            // Spawn at a random door (layout is known)
+            const newHalfSize = (SIZE * CELL_SIZE) / 2;
+            const doorOffset = 1.5;
+            const doors = ['north', 'south', 'east', 'west'];
+            const randomDoor = doors[Math.floor(Math.random() * doors.length)];
+            switch (randomDoor) {
+                case 'east':
+                    playerPosition.x = newHalfSize - doorOffset;
+                    playerPosition.z = 0;
+                    playerRotation = Math.PI / 2;
+                    break;
+                case 'west':
+                    playerPosition.x = -newHalfSize + doorOffset;
+                    playerPosition.z = 0;
+                    playerRotation = -Math.PI / 2;
+                    break;
+                case 'south':
+                    playerPosition.x = 0;
+                    playerPosition.z = newHalfSize - doorOffset;
+                    playerRotation = 0;
+                    break;
+                case 'north':
+                    playerPosition.x = 0;
+                    playerPosition.z = -newHalfSize + doorOffset;
+                    playerRotation = Math.PI;
+                    break;
             }
+        } else if (sceneMode === 'gallery' || sceneMode === 'cathedral') {
+            // Gallery/Cathedral doors are generated during createContent (createMaze).
+            // We must use a temp position first, and update it AFTER createMaze completes
+            // to ensure we use the FRESH door data, not stale data from previous run.
+            playerPosition.x = 0;
+            playerPosition.z = 0;
+            playerRotation = 0;
+        } else if (sceneMode === 'alley') {
+            // Spawn at the east side (door entrance)
+            const alleyZ = Math.floor(SIZE / 2);
+            const halfSize = (SIZE * CELL_SIZE) / 2;
+            const doorOffset = 1.5;
+            playerPosition.x = halfSize - doorOffset;
+            playerPosition.z = (alleyZ - SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
+            playerRotation = Math.PI / 2;
         }
 
         // Generate maze first (this sets window.mazeDoors for maze mode)
@@ -1522,6 +1457,56 @@ async function regenerateScene() {
         // Create maze with correct start cell for painting loading order
         currentMazeGroup = await createMaze(mazeData, startCell);
         scene.add(currentMazeGroup);
+
+        // Update spawn position for Gallery/Cathedral AFTER createMaze (when doors are created)
+        if (sceneMode === 'gallery' && window.galleryDoors) {
+            const doors = window.galleryDoors;
+            const spawnDoor = Math.random() < 0.5 ? doors.door1 : doors.door2;
+            const doorOffset = 2.0;
+            const spawnDist = doors.doorRadius - doorOffset;
+            playerPosition.x = Math.cos(spawnDoor.angle) * spawnDist;
+            playerPosition.z = Math.sin(spawnDoor.angle) * spawnDist;
+            playerRotation = Math.atan2(playerPosition.x, playerPosition.z);
+
+            // Apply immediately to camera since we've already faded to black
+            camera.position.set(playerPosition.x, playerPosition.y || 1.2, playerPosition.z);
+            camera.rotation.y = playerRotation;
+        } else if (sceneMode === 'cathedral' && window.cathedralDoors) {
+            const doors = window.cathedralDoors;
+            const halfRoom = doors.roomWidth / 2;
+            const doorOffset = 1.5;
+            const doorKeys = ['north', 'south', 'east', 'west'];
+            const randomKey = doorKeys[Math.floor(Math.random() * doorKeys.length)];
+            switch (randomKey) {
+                case 'north':
+                    playerPosition.x = 0;
+                    playerPosition.z = -halfRoom + doorOffset;
+                    playerRotation = Math.PI;
+                    break;
+                case 'south':
+                    playerPosition.x = 0;
+                    playerPosition.z = halfRoom - doorOffset;
+                    playerRotation = 0;
+                    break;
+                case 'west':
+                    playerPosition.x = -halfRoom + doorOffset;
+                    playerPosition.z = 0;
+                    playerRotation = -Math.PI / 2;
+                    break;
+                case 'east':
+                    playerPosition.x = halfRoom - doorOffset;
+                    playerPosition.z = 0;
+                    playerRotation = Math.PI / 2;
+                    break;
+            }
+            // Apply immediately to camera
+            camera.position.set(playerPosition.x, playerPosition.y || 1.2, playerPosition.z);
+            camera.rotation.y = playerRotation;
+        } else if (sceneMode !== 'gallery' && sceneMode !== 'cathedral') {
+            // For other scenes, apply the pre-calculated position
+            camera.position.set(playerPosition.x, playerPosition.y || 1.2, playerPosition.z);
+            camera.rotation.y = playerRotation;
+        }
 
         // Update lighting based on texture style
         if (globalAmbientLight) {
@@ -1730,13 +1715,46 @@ function init() {
 
     // Set initial player position based on mode (BEFORE createMaze so pathfinding starts from spawn)
     if (sceneMode === 'alley') {
-        // Start in the middle of the alley
-        const alleyZ = Math.floor(MAZE_SIZE / 2);
-        playerPosition.x = 0;
-        playerPosition.z = (alleyZ - MAZE_SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
-        playerRotation = Math.PI / 2; // Face east
-    } else if (sceneMode === 'openspace') {
-        // Start in the center of the room
+        // Start at the east side of the alley (door entrance)
+        const SIZE = getEffectiveSize();
+        const alleyZ = Math.floor(SIZE / 2);
+        const halfSize = (SIZE * CELL_SIZE) / 2;
+        const doorOffset = 1.5;
+        playerPosition.x = halfSize - doorOffset;
+        playerPosition.z = (alleyZ - SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
+        playerRotation = Math.PI / 2; // Face west (down the alley)
+    } else if (sceneMode === 'openspace' || sceneMode === 'pillars' || sceneMode === 'complex') {
+        // Spawn at a random door
+        const SIZE = getEffectiveSize();
+        const halfSize = (SIZE * CELL_SIZE) / 2;
+        const doorOffset = 1.5;
+        const doors = ['north', 'south', 'east', 'west'];
+        const randomDoor = doors[Math.floor(Math.random() * doors.length)];
+        switch (randomDoor) {
+            case 'east':
+                playerPosition.x = halfSize - doorOffset;
+                playerPosition.z = 0;
+                playerRotation = Math.PI / 2; // Face west
+                break;
+            case 'west':
+                playerPosition.x = -halfSize + doorOffset;
+                playerPosition.z = 0;
+                playerRotation = -Math.PI / 2; // Face east
+                break;
+            case 'south':
+                playerPosition.x = 0;
+                playerPosition.z = halfSize - doorOffset;
+                playerRotation = 0; // Face north
+                break;
+            case 'north':
+                playerPosition.x = 0;
+                playerPosition.z = -halfSize + doorOffset;
+                playerRotation = Math.PI; // Face south
+                break;
+        }
+    } else if (sceneMode === 'gallery' || sceneMode === 'cathedral') {
+        // Gallery/Cathedral doors are set during createMaze, so use temp position
+        // Will be updated after createMaze completes
         playerPosition.x = 0;
         playerPosition.z = 0;
         playerRotation = 0;
@@ -1767,7 +1785,7 @@ function init() {
             playerRotation = Math.PI / 2;
         }
     } else {
-        // Other modes: top-left corner
+        // Fallback: top-left corner
         const SIZE = getEffectiveSize();
         playerPosition.x = (-SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
         playerPosition.z = (-SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
@@ -1781,6 +1799,49 @@ function init() {
     createMaze(mazeData, startCell).then(maze3D => {
         currentMazeGroup = maze3D;
         scene.add(maze3D);
+
+        // Update spawn position for gallery/cathedral after doors are created
+        if (sceneMode === 'gallery' && window.galleryDoors) {
+            const doors = window.galleryDoors;
+            const spawnDoor = Math.random() < 0.5 ? doors.door1 : doors.door2;
+            const doorOffset = 1.0;
+            const spawnDist = doors.doorRadius - doorOffset;
+            playerPosition.x = Math.cos(spawnDoor.angle) * spawnDist;
+            playerPosition.z = Math.sin(spawnDoor.angle) * spawnDist;
+            playerRotation = Math.atan2(playerPosition.x, playerPosition.z);
+            camera.position.set(playerPosition.x, 1.2, playerPosition.z);
+            camera.rotation.y = playerRotation;
+        } else if (sceneMode === 'cathedral' && window.cathedralDoors) {
+            const doors = window.cathedralDoors;
+            const halfRoom = doors.roomWidth / 2;
+            const doorOffset = 1.5;
+            const doorKeys = ['north', 'south', 'east', 'west'];
+            const randomKey = doorKeys[Math.floor(Math.random() * doorKeys.length)];
+            switch (randomKey) {
+                case 'north':
+                    playerPosition.x = 0;
+                    playerPosition.z = -halfRoom + doorOffset;
+                    playerRotation = Math.PI;
+                    break;
+                case 'south':
+                    playerPosition.x = 0;
+                    playerPosition.z = halfRoom - doorOffset;
+                    playerRotation = 0;
+                    break;
+                case 'west':
+                    playerPosition.x = -halfRoom + doorOffset;
+                    playerPosition.z = 0;
+                    playerRotation = -Math.PI / 2;
+                    break;
+                case 'east':
+                    playerPosition.x = halfRoom - doorOffset;
+                    playerPosition.z = 0;
+                    playerRotation = Math.PI / 2;
+                    break;
+            }
+            camera.position.set(playerPosition.x, 1.2, playerPosition.z);
+            camera.rotation.y = playerRotation;
+        }
     });
 
     camera.position.set(playerPosition.x, 1.2, playerPosition.z);
@@ -4196,43 +4257,8 @@ async function handleMazeDoorCrossing(exitDirection) {
                 }, 0);
             }
 
-            // Regenerate with new scene
+            // Regenerate with new scene (this handles spawn positioning)
             await regenerateScene();
-
-            // Position player based on new scene type
-            if (newSceneMode === 'maze') {
-                // Spawn at random maze door (handled by regenerateScene)
-            } else if (newSceneMode === 'openspace' || newSceneMode === 'pillars' || newSceneMode === 'complex') {
-                // Spawn at center
-                playerPosition.x = 0;
-                playerPosition.z = 0;
-                playerRotation = 0;
-            } else if (newSceneMode === 'gallery') {
-                const doors = window.galleryDoors;
-                if (doors) {
-                    const spawnDoor = Math.random() < 0.5 ? doors.door1 : doors.door2;
-                    const doorOffset = 1.0;
-                    const spawnDist = doors.doorRadius - doorOffset;
-                    playerPosition.x = Math.cos(spawnDoor.angle) * spawnDist;
-                    playerPosition.z = Math.sin(spawnDoor.angle) * spawnDist;
-                    playerRotation = Math.atan2(playerPosition.x, playerPosition.z);
-                }
-            } else if (newSceneMode === 'alley') {
-                const SIZE = getEffectiveSize();
-                const alleyZ = Math.floor(SIZE / 2);
-                const halfSize = (SIZE * CELL_SIZE) / 2;
-                const doorOffset = 1.5;
-                playerPosition.x = halfSize - doorOffset;
-                playerPosition.z = (alleyZ - SIZE / 2) * CELL_SIZE + CELL_SIZE / 2;
-                playerRotation = Math.PI / 2;
-            } else if (newSceneMode === 'cathedral') {
-                playerPosition.x = 0;
-                playerPosition.z = 0;
-                playerRotation = 0;
-            }
-
-            camera.position.set(playerPosition.x, playerPosition.y || 1.2, playerPosition.z);
-            camera.rotation.y = playerRotation;
 
             await fadeFromBlack();
             return;
@@ -4340,7 +4366,7 @@ async function handleOpenspaceDoorCrossing(exitDirection) {
                     sceneModeSelect.addEventListener('change', sceneModeSelectHandler);
                 }, 0);
             }
-            // Regenerate with new scene
+            // Regenerate with new scene (this handles spawn positioning)
             await regenerateScene();
 
             // Position player at appropriate door based on new scene type
@@ -4381,127 +4407,88 @@ async function handleOpenspaceDoorCrossing(exitDirection) {
                             break;
                     }
                 }
-            } else if (newSceneMode === 'gallery') {
-                // Spawn at a door in gallery
-                const doors = window.galleryDoors;
-                if (doors) {
-                    const spawnDoor = Math.random() < 0.5 ? doors.door1 : doors.door2;
-                    const doorOffset = 2.0; // Increased to prevent immediate re-triggering
-                    const spawnDist = doors.doorRadius - doorOffset;
-                    playerPosition.x = Math.cos(spawnDoor.angle) * spawnDist;
-                    playerPosition.z = Math.sin(spawnDoor.angle) * spawnDist;
-                    playerRotation = Math.atan2(playerPosition.x, playerPosition.z);
-                }
-            } else if (newSceneMode === 'alley') {
-                // Spawn at the right side (east) of the alley, like a door entrance
-                const size = getEffectiveSize();
-                const alleyZ = Math.floor(size / 2);
-                const halfSize = (size * CELL_SIZE) / 2;
-                const doorOffset = 1.5; // Increased to prevent immediate re-triggering
-                playerPosition.x = halfSize - doorOffset; // Right side (east) of the alley
-                playerPosition.z = (alleyZ - size / 2) * CELL_SIZE + CELL_SIZE / 2;
-                playerRotation = Math.PI / 2; // Face east (down the alley)
-            } else if (newSceneMode === 'cathedral') {
-                // Spawn at a random door in cathedral
-                const doors = window.cathedralDoors;
-                if (doors) {
-                    const spawnDoor = Math.random() < 0.5 ? doors.door1 : doors.door2;
-                    const doorOffset = 2.0;
-                    if (spawnDoor.direction === 'north') {
-                        playerPosition.x = spawnDoor.x;
-                        playerPosition.z = spawnDoor.z - doorOffset;
-                        playerRotation = 0;
-                    } else if (spawnDoor.direction === 'south') {
-                        playerPosition.x = spawnDoor.x;
-                        playerPosition.z = spawnDoor.z + doorOffset;
-                        playerRotation = Math.PI;
-                    } else if (spawnDoor.direction === 'east') {
-                        playerPosition.x = spawnDoor.x - doorOffset;
-                        playerPosition.z = spawnDoor.z;
-                        playerRotation = Math.PI / 2;
-                    } else {
-                        playerPosition.x = spawnDoor.x + doorOffset;
-                        playerPosition.z = spawnDoor.z;
-                        playerRotation = -Math.PI / 2;
-                    }
-                }
-            } else if (newSceneMode === 'pillars') {
-                // Spawn at a door in pillars (similar to openspace)
-                const pillarsSize = 15;
-                const pillarsHalfSize = (pillarsSize * CELL_SIZE) / 2;
-                const doorOffset = 1.5;
-                playerPosition.x = -pillarsHalfSize + doorOffset;
-                playerPosition.z = 0;
+                playerPosition.x = spawnDoor.x + doorOffset;
+                playerPosition.z = spawnDoor.z;
                 playerRotation = -Math.PI / 2;
             }
-
-            camera.position.set(playerPosition.x, playerPosition.y || 1.2, playerPosition.z);
-            camera.rotation.y = playerRotation;
-
-            // Fade from black
-            await fadeFromBlack();
-            return;
         }
-
-        // Fade to black
-        await fadeToBlack();
-
-        // Pick a new random room size
-        const newSize = getRandomOpenspaceSize();
-        console.log(`Crossed ${exitDirection} door, generating new ${newSize}x${newSize} room...`);
-        // Pick a new random room size
-        // Note: openspaceSize will be set by regenerateScene
-        // openspaceSize = newSize; // DELETED to prevent double randomization
-
-        // Regenerate the entire scene with new size
-        // Note: createMaze already starts loading paintings via its async IIFE
-        // Do NOT call reloadAllPaintings here as it would race with createMaze's loading
-        await regenerateScene();
-
-        // Position player at the opposite door of the new room
-        const doors = window.openspaceDoors;
-        const newHalfSize = doors ? doors.halfSize : (newSize * CELL_SIZE) / 2;
-        const doorOffset = 1.5; // Increased to prevent immediate re-triggering
-
-        switch (exitDirection) {
-            case 'east':
-                // Exited east, spawn at west door, face center (east)
-                playerPosition.x = -newHalfSize + doorOffset;
-                playerPosition.z = 0;
-                playerRotation = -Math.PI / 2; // Face east (toward center)
-                break;
-            case 'west':
-                // Exited west, spawn at east door, face center (west)
-                playerPosition.x = newHalfSize - doorOffset;
-                playerPosition.z = 0;
-                playerRotation = Math.PI / 2; // Face west (toward center)
-                break;
-            case 'south':
-                // Exited south, spawn at north door, face center (south)
-                playerPosition.x = 0;
-                playerPosition.z = -newHalfSize + doorOffset;
-                playerRotation = Math.PI; // Face south (toward center)
-                break;
-            case 'north':
-                // Exited north, spawn at south door, face center (north)
-                playerPosition.x = 0;
-                playerPosition.z = newHalfSize - doorOffset;
-                playerRotation = 0; // Face north (toward center)
-                break;
-            default:
-                // Fallback to center
-                playerPosition.x = 0;
-                playerPosition.z = 0;
-        }
-
-        camera.position.set(playerPosition.x, 1.2, playerPosition.z);
-        camera.rotation.y = playerRotation;
-
-        // Fade from black
-        await fadeFromBlack();
-    } finally {
-        isTransitioningRoom = false;
+    } else if (newSceneMode === 'pillars') {
+        // Spawn at a door in pillars (similar to openspace)
+        const pillarsSize = 15;
+        const pillarsHalfSize = (pillarsSize * CELL_SIZE) / 2;
+        const doorOffset = 1.5;
+        playerPosition.x = -pillarsHalfSize + doorOffset;
+        playerPosition.z = 0;
+        playerRotation = -Math.PI / 2;
     }
+
+    camera.position.set(playerPosition.x, playerPosition.y || 1.2, playerPosition.z);
+    camera.rotation.y = playerRotation;
+
+    // Fade from black
+    await fadeFromBlack();
+    return;
+}
+
+// Fade to black
+await fadeToBlack();
+
+// Pick a new random room size
+const newSize = getRandomOpenspaceSize();
+console.log(`Crossed ${exitDirection} door, generating new ${newSize}x${newSize} room...`);
+// Pick a new random room size
+// Note: openspaceSize will be set by regenerateScene
+// openspaceSize = newSize; // DELETED to prevent double randomization
+
+// Regenerate the entire scene with new size
+// Note: createMaze already starts loading paintings via its async IIFE
+// Do NOT call reloadAllPaintings here as it would race with createMaze's loading
+await regenerateScene();
+
+// Position player at the opposite door of the new room
+const doors = window.openspaceDoors;
+const newHalfSize = doors ? doors.halfSize : (newSize * CELL_SIZE) / 2;
+const doorOffset = 1.5; // Increased to prevent immediate re-triggering
+
+switch (exitDirection) {
+    case 'east':
+        // Exited east, spawn at west door, face center (east)
+        playerPosition.x = -newHalfSize + doorOffset;
+        playerPosition.z = 0;
+        playerRotation = -Math.PI / 2; // Face east (toward center)
+        break;
+    case 'west':
+        // Exited west, spawn at east door, face center (west)
+        playerPosition.x = newHalfSize - doorOffset;
+        playerPosition.z = 0;
+        playerRotation = Math.PI / 2; // Face west (toward center)
+        break;
+    case 'south':
+        // Exited south, spawn at north door, face center (south)
+        playerPosition.x = 0;
+        playerPosition.z = -newHalfSize + doorOffset;
+        playerRotation = Math.PI; // Face south (toward center)
+        break;
+    case 'north':
+        // Exited north, spawn at south door, face center (north)
+        playerPosition.x = 0;
+        playerPosition.z = newHalfSize - doorOffset;
+        playerRotation = 0; // Face north (toward center)
+        break;
+    default:
+        // Fallback to center
+        playerPosition.x = 0;
+        playerPosition.z = 0;
+}
+
+camera.position.set(playerPosition.x, 1.2, playerPosition.z);
+camera.rotation.y = playerRotation;
+
+// Fade from black
+await fadeFromBlack();
+    } finally {
+    isTransitioningRoom = false;
+}
 }
 
 // Handle crossing pillars door - similar to openspace but fixed 15x15 size
