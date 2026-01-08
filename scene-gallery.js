@@ -20,7 +20,9 @@ class GalleryScene extends SceneController {
     createContent(group, textureStyle, size) {
         // Random gallery configurations - select one each time gallery is created
         const configs = [
-            { numSides: 20, radius: 20 },
+            { numSides: 16, radius: 16 },
+            { numSides: 14, radius: 14 },
+            { numSides: 12, radius: 12 },
             { numSides: 10, radius: 10 },
             { numSides: 8, radius: 8 }
         ];
@@ -40,6 +42,7 @@ class GalleryScene extends SceneController {
         const floor = new THREE.Mesh(floorGeometry, floorMaterial);
         floor.rotation.x = -Math.PI / 2;
         floor.position.y = -0.5;
+        floor.receiveShadow = true;
         group.add(floor);
 
         // Create ceiling
@@ -48,6 +51,7 @@ class GalleryScene extends SceneController {
         const ceiling = new THREE.Mesh(ceilingGeometry, ceilingMaterial);
         ceiling.rotation.x = Math.PI / 2;
         ceiling.position.y = this.wallHeight - 0.5;
+        ceiling.receiveShadow = true;
         group.add(ceiling);
 
         // Create walls arranged in a polygon
@@ -76,6 +80,9 @@ class GalleryScene extends SceneController {
                 isGalleryWall: true,
                 angle: angle
             };
+
+            wall.castShadow = true;
+            wall.receiveShadow = true;
 
             this.galleryWalls.push(wall);
             group.add(wall);
@@ -362,8 +369,9 @@ class GalleryScene extends SceneController {
             group.add(lamp);
 
             // Add point light below lamp (stronger for gallery)
-            const lampLight = new THREE.PointLight(0xFFF5E0, 1.5, 8, 1.5);
+            const lampLight = new THREE.PointLight(0xFFF5E0, 0.25, 8, 1.5);
             lampLight.position.set(lampX, lampY - 0.1, lampZ);
+            lampLight.castShadow = true;
             group.add(lampLight);
         }
     }
@@ -377,7 +385,7 @@ class GalleryScene extends SceneController {
             floorTexture.wrapS = THREE.RepeatWrapping;
             floorTexture.wrapT = THREE.RepeatWrapping;
             floorTexture.repeat.set(10, 10);
-            return new THREE.MeshLambertMaterial({ map: floorTexture });
+            return new THREE.MeshStandardMaterial({ map: floorTexture, roughness: 0.8 });
         } else if (textureStyle === 'entirewall') {
             return new THREE.MeshLambertMaterial({ color: 0xE8E8E8 }); // Whiteish
         }
@@ -389,7 +397,7 @@ class GalleryScene extends SceneController {
         const textureLoader = new THREE.TextureLoader();
 
         if (textureStyle === 'backrooms') {
-            return new THREE.MeshLambertMaterial({ color: 0xF5F5DC }); // Fluorescent off-white
+            return new THREE.MeshStandardMaterial({ color: 0xF5F5DC, roughness: 0.8 }); // Fluorescent off-white
         } else if (textureStyle === 'entirewall') {
             return new THREE.MeshLambertMaterial({ color: 0x505050 }); // Grayish
         }
@@ -410,7 +418,7 @@ class GalleryScene extends SceneController {
             wallTexture.wrapS = THREE.RepeatWrapping;
             wallTexture.wrapT = THREE.RepeatWrapping;
             wallTexture.repeat.set(2, 1);
-            return new THREE.MeshLambertMaterial({ map: wallTexture });
+            return new THREE.MeshStandardMaterial({ map: wallTexture, roughness: 0.8 });
         } else if (textureStyle === 'entirewall') {
             return new THREE.MeshLambertMaterial({ color: 0x000000 }); // Black
         }

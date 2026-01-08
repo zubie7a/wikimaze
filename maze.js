@@ -1487,7 +1487,8 @@ async function regenerateScene() {
             // For cathedral/complex/gallery backrooms, add point light that follows player
             if (sceneMode === 'cathedral' || sceneMode === 'complex' || sceneMode === 'gallery') {
                 if (!globalPlayerLight && scene) {
-                    globalPlayerLight = new THREE.PointLight(0xFFF5E0, 3.0, 5, 1.5);
+                    const intensity = sceneMode === 'gallery' ? 0.5 : 3.0;
+                    globalPlayerLight = new THREE.PointLight(0xFFF5E0, intensity, 15, 1.5);
                     globalPlayerLight.castShadow = true;
                     globalPlayerLight.shadow.bias = -0.0001;
                     scene.add(globalPlayerLight);
@@ -1620,7 +1621,8 @@ function init() {
         // For cathedral/complex/gallery backrooms, add point light that follows player
         if (sceneMode === 'cathedral' || sceneMode === 'complex' || sceneMode === 'gallery') {
             if (!globalPlayerLight) {
-                globalPlayerLight = new THREE.PointLight(0xFFF5E0, 3.0, 15, 1.5);
+                const intensity = sceneMode === 'gallery' ? 0.5 : 3.0;
+                globalPlayerLight = new THREE.PointLight(0xFFF5E0, intensity, 15, 1.5);
                 globalPlayerLight.castShadow = true;
                 globalPlayerLight.shadow.bias = -0.0001;
                 scene.add(globalPlayerLight);
@@ -1638,13 +1640,8 @@ function init() {
             scene.remove(globalPlayerLight);
             globalPlayerLight = null;
         }
-        if (sceneMode === 'gallery' && textureStyle === 'w95') {
-            // Gallery with W95 texture: use point light from center
-            globalDirectionalLight = null;
-            globalGalleryCenterLight = new THREE.PointLight(0xffffff, 1.5, 30, 2);
-            globalGalleryCenterLight.position.set(0, 3, 0); // Center of gallery, slightly above ground
-            globalGalleryCenterLight.castShadow = true;
-            scene.add(globalGalleryCenterLight);
+        if (false) {
+            // Logic removed per user request
         } else {
             // Other scenes/textures: use directional light
             globalGalleryCenterLight = null;
@@ -3377,7 +3374,7 @@ function animate() {
     updateCreepyEyes();
 
     // Update player light position to follow camera
-    if (globalPlayerLight && (sceneMode === 'cathedral' || sceneMode === 'complex') && textureStyle === 'backrooms') {
+    if (globalPlayerLight && (sceneMode === 'cathedral' || sceneMode === 'complex' || sceneMode === 'gallery') && textureStyle === 'backrooms') {
         globalPlayerLight.position.set(
             camera.position.x,
             camera.position.y + 0.5, // Fixed height above ground (ground is at -0.5, so this is 1.5 units above ground)
