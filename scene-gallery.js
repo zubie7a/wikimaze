@@ -300,10 +300,11 @@ class GalleryScene extends SceneController {
         const frameWidth = 1.5;
         const frameHeight = 1.2;
         const frameDepth = 0.05;
+        const frameThickness = 0.05; // Border thickness around picture
 
-        // Frame
-        const frameGeometry = new THREE.BoxGeometry(frameWidth + 0.1, frameHeight + 0.1, frameDepth);
-        const frameMaterial = new THREE.MeshLambertMaterial({ color: 0x4A3728 });
+        // Frame - match maze.js color (0x8B4513 brown)
+        const frameGeometry = new THREE.BoxGeometry(frameWidth + frameThickness * 2, frameHeight + frameThickness * 2, frameDepth);
+        const frameMaterial = new THREE.MeshLambertMaterial({ color: 0x8B4513 });
         const frame = new THREE.Mesh(frameGeometry, frameMaterial);
 
         // Painting canvas
@@ -348,7 +349,8 @@ class GalleryScene extends SceneController {
             transparent: true
         });
         const plate = new THREE.Mesh(plateGeometry, plateMaterial);
-        plate.position.y = -frameHeight / 2 - 0.12;
+        // Position plate below the frame (matching maze.js style)
+        plate.position.y = -frameHeight / 2 - frameThickness - plateHeight / 2 - 0.02;
         plate.position.z = frameDepth / 2 + 0.001;
 
         // Group frame, canvas and plate
@@ -357,9 +359,9 @@ class GalleryScene extends SceneController {
         paintingGroup.add(canvas);
         paintingGroup.add(plate);
 
-        // Position painting on wall (slightly in front of wall, toward center)
+        // Position painting on wall (flush against wall, like maze.js)
         const wallAngle = wall.userData.angle;
-        const paintingDist = this.radius - 0.15; // Slightly in front of wall
+        const paintingDist = this.radius - frameDepth / 2 - 0.01; // Flush against wall
         const paintingX = Math.cos(wallAngle) * paintingDist;
         const paintingZ = Math.sin(wallAngle) * paintingDist;
         paintingGroup.position.set(paintingX, 1.2, paintingZ);

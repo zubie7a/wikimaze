@@ -506,10 +506,11 @@ class CathedralScene extends SceneController {
         }
 
         const frameDepth = 0.05;
+        const frameThickness = 0.04; // Border thickness around picture
 
-        // Frame
-        const frameGeometry = new THREE.BoxGeometry(frameWidth + 0.08, frameHeight + 0.08, frameDepth);
-        const frameMaterial = new THREE.MeshLambertMaterial({ color: 0x4A3728 });
+        // Frame - match maze.js color (0x8B4513 brown)
+        const frameGeometry = new THREE.BoxGeometry(frameWidth + frameThickness * 2, frameHeight + frameThickness * 2, frameDepth);
+        const frameMaterial = new THREE.MeshLambertMaterial({ color: 0x8B4513 });
         const frame = new THREE.Mesh(frameGeometry, frameMaterial);
 
         // Canvas - now with correct aspect ratio
@@ -543,7 +544,8 @@ class CathedralScene extends SceneController {
             transparent: true
         });
         const plate = new THREE.Mesh(plateGeometry, plateMaterial);
-        plate.position.y = -frameHeight / 2 - 0.05;
+        // Position plate below the frame (matching maze.js style)
+        plate.position.y = -frameHeight / 2 - frameThickness - plateHeight / 2 - 0.02;
         plate.position.z = frameDepth / 2 + 0.001;
 
         // Group all painting elements
@@ -552,18 +554,18 @@ class CathedralScene extends SceneController {
         paintingGroup.add(canvas);
         paintingGroup.add(plate);
 
-        // Position on wall (slightly in front, facing inward toward center)
+        // Position on wall (flush against wall, like maze.js)
         paintingGroup.position.copy(wall.position);
 
-        // Adjust position based on wall direction to keep paintings inside room
+        // Offset just enough for frame depth (flush with wall)
         if (wall.userData.direction === 'north') {
-            paintingGroup.position.z -= 0.1; // Move inward (toward center/south)
+            paintingGroup.position.z -= frameDepth / 2 + 0.01;
         } else if (wall.userData.direction === 'south') {
-            paintingGroup.position.z += 0.1; // Move inward (toward center/north)
+            paintingGroup.position.z += frameDepth / 2 + 0.01;
         } else if (wall.userData.direction === 'east') {
-            paintingGroup.position.x -= 0.1; // Move inward (toward center/west)
+            paintingGroup.position.x -= frameDepth / 2 + 0.01;
         } else if (wall.userData.direction === 'west') {
-            paintingGroup.position.x += 0.1; // Move inward (toward center/east)
+            paintingGroup.position.x += frameDepth / 2 + 0.01;
         }
 
         paintingGroup.rotation.y = wall.rotation.y;
