@@ -4878,6 +4878,10 @@ function updateStatsDisplay() {
                     </button>
                 </div>
             </div>
+            <hr style="border-color: #666; margin: 10px 0;">
+            <div style="text-align: center; font-size: 11px; color: #aaa; margin-top: 10px;">
+                Made by <a href="https://www.linkedin.com/in/zubie7a/" target="_blank" rel="noopener noreferrer" style="color: #4a9eff; text-decoration: none;">Santiago Zubieta</a>
+            </div>
         `;
 
         // Attach event handlers
