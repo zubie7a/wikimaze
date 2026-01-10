@@ -253,6 +253,40 @@ class GalleryScene extends SceneController {
 
             group.add(picture);
 
+            // Create title plate for entirewall style (positioned at bottom of painting)
+            const plateWidth = 1.5; // Fixed width matching framed style
+            const plateHeight = 0.12;
+            const plateGeometry = new THREE.PlaneGeometry(plateWidth, plateHeight);
+
+            const titleCanvas = document.createElement('canvas');
+            titleCanvas.width = 512;
+            titleCanvas.height = 32;
+            const ctx = titleCanvas.getContext('2d');
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+            ctx.fillRect(0, 0, 512, 32);
+            ctx.fillStyle = 'white';
+            ctx.font = 'bold 14px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            let title = imageData.title || 'Untitled';
+            if (title.length > 40) title = title.substring(0, 37) + '...';
+            ctx.fillText(title, 256, 16);
+
+            const plateTexture = new THREE.CanvasTexture(titleCanvas);
+            const plateMaterial = new THREE.MeshBasicMaterial({
+                map: plateTexture,
+                transparent: true
+            });
+            const plate = new THREE.Mesh(plateGeometry, plateMaterial);
+
+            // Position plate at bottom of painting, facing center
+            const plateDist = this.radius - 0.02;
+            const plateX = Math.cos(wallAngle) * plateDist;
+            const plateZ = Math.sin(wallAngle) * plateDist;
+            plate.position.set(plateX, -0.4, plateZ);
+            plate.lookAt(0, -0.4, 0);
+            group.add(plate);
+
             // Track for reload functionality
             window.galleryPaintingGroups[i] = picture;
 

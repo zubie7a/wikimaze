@@ -400,6 +400,57 @@ class CathedralScene extends SceneController {
 
             group.add(picture);
 
+            // Create title plate for entirewall style (positioned INSIDE the painting, near bottom)
+            const plateWidth = 1.0; // Fixed width to avoid stretching
+            const plateHeight = 0.08;
+            const plateGeometry = new THREE.PlaneGeometry(plateWidth, plateHeight);
+
+            const titleCanvas = document.createElement('canvas');
+            titleCanvas.width = 256;
+            titleCanvas.height = 20;
+            const ctx = titleCanvas.getContext('2d');
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+            ctx.fillRect(0, 0, 256, 20);
+            ctx.fillStyle = 'white';
+            ctx.font = 'bold 8px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            let title = imageData.title || 'Untitled';
+            if (title.length > 20) title = title.substring(0, 17) + '...';
+            ctx.fillText(title, 128, 10);
+
+            const plateTexture = new THREE.CanvasTexture(titleCanvas);
+            const plateMaterial = new THREE.MeshBasicMaterial({
+                map: plateTexture,
+                transparent: true
+            });
+            const plate = new THREE.Mesh(plateGeometry, plateMaterial);
+
+            // Position plate at bottom of painting, slightly in front of painting
+            plate.position.copy(picture.position);
+
+            // Position plate INSIDE the painting, near the bottom edge (not below it)
+            // picture.position.y is center of segment, bottom edge is y - segmentHeight/2
+            // Place plate slightly above the bottom edge (inside the picture)
+            const paintingBottom = picture.position.y - this.segmentHeight / 2;
+            plate.position.y = paintingBottom + 0.15; // 0.15 units above bottom edge (inside picture)
+
+            // Offset plate same direction as picture but further (in front of painting, toward room center)
+            // Picture offsets are: north z-=0.01, south z+=0.01, east x-=0.01, west x+=0.01
+            // These offsets move the picture TOWARD the room interior (away from wall surface)
+            // So we continue in same direction but further for the plate
+            if (wall.userData.direction === 'north') {
+                plate.position.z -= 0.05; // Same direction as picture (-), further from wall
+            } else if (wall.userData.direction === 'south') {
+                plate.position.z += 0.05; // Same direction as picture (+), further from wall
+            } else if (wall.userData.direction === 'east') {
+                plate.position.x -= 0.05; // Same direction as picture (-), further from wall
+            } else if (wall.userData.direction === 'west') {
+                plate.position.x += 0.05; // Same direction as picture (+), further from wall
+            }
+            plate.rotation.y = wall.rotation.y;
+            group.add(plate);
+
             // Track painting by wall index
             if (window.cathedralPaintingMap) {
                 window.cathedralPaintingMap.set(wallIndex, picture);
