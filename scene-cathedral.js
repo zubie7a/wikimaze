@@ -546,7 +546,7 @@ class CathedralScene extends SceneController {
         const plate = new THREE.Mesh(plateGeometry, plateMaterial);
         // Position plate below the frame (matching maze.js style)
         plate.position.y = -frameHeight / 2 - frameThickness - plateHeight / 2 - 0.02;
-        plate.position.z = frameDepth / 2 + 0.001;
+        plate.position.z = 0.001; // Flush with frame
 
         // Group all painting elements
         const paintingGroup = new THREE.Group();
