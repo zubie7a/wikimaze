@@ -3128,8 +3128,9 @@ function updateMovement() {
 
     // Wrap around for endless alley mode
     if (sceneMode === 'alley') {
-        const minX = (-MAZE_SIZE / 2) * CELL_SIZE;
-        const maxX = (MAZE_SIZE / 2) * CELL_SIZE;
+        const SIZE = getEffectiveSize();
+        const minX = (-SIZE / 2) * CELL_SIZE;
+        const maxX = (SIZE / 2) * CELL_SIZE;
         const alleyWidth = maxX - minX;
 
         if (playerPosition.x < minX) {
@@ -3588,6 +3589,10 @@ function updateCreepyEyes() {
 // Animation loop
 function animate() {
     requestAnimationFrame(animate);
+
+    // Skip updates if regenerating scene to prevent race conditions
+    if (isRegenerating) return;
+
     updateMovement();
     updateAlleyFog();
     updateFlickeringLights();
