@@ -39,13 +39,13 @@ let collisionsEnabled = true; // Wall collision detection
 let statsDiv = null; // Stats display element
 let useRandomImages = true; // Whether to use random images or topic-based search
 let searchTopic = ''; // Topic to search for Wikipedia images
-let textureStyle = 'w95'; // 'w95' (framed with bricks), 'entirewall' (image covers entire wall), or 'backrooms'
-let randomSceneChange = false; // Whether to randomly change scene when crossing doors
+let textureStyle = 'backrooms'; // 'w95' (framed with bricks), 'entirewall' (image covers entire wall), or 'backrooms'
+let randomSceneChange = true; // Whether to randomly change scene when crossing doors
 let isLoadingImages = false; // Whether images are currently being loaded
 let loadedImagesCount = 0; // Number of images loaded so far
 let totalImagesToLoad = 0; // Total number of images to load
 let cancelLoading = false; // Flag to cancel current loading operation
-let statsVisible = false; // Stats visibility state
+let statsVisible = true; // Stats visibility state
 let sceneMode = 'maze'; // 'maze' or 'openspace'
 let wikipediaWalls = new Set(); // Track which walls have Wikipedia textures (format: "type-x-y")
 let globalWallMeshMap = null; // Global reference to wall mesh map for loading paintings on demand
@@ -1875,7 +1875,7 @@ function init() {
     statsDiv.style.padding = '10px';
     statsDiv.style.border = '2px solid #fff';
     statsDiv.style.fontFamily = 'monospace';
-    statsDiv.style.display = 'none';
+    statsDiv.style.display = 'block';
     document.body.appendChild(statsDiv);
 
     // Create menu toggle icon (shown when stats are hidden)
@@ -1890,7 +1890,7 @@ function init() {
     menuToggle.style.border = '2px solid #fff';
     menuToggle.style.cursor = 'pointer';
     menuToggle.style.zIndex = '100';
-    menuToggle.style.display = 'block';
+    menuToggle.style.display = 'none';
     menuToggle.style.textAlign = 'center';
     menuToggle.style.lineHeight = '28px';
     menuToggle.style.fontSize = '18px';
@@ -1905,6 +1905,9 @@ function init() {
         updateStatsDisplay();
     });
     document.body.appendChild(menuToggle);
+
+    // Initialize menu content since it's visible by default
+    updateStatsDisplay();
 
     // Event listeners
     window.addEventListener('keydown', onKeyDown);
